@@ -228,6 +228,32 @@ select, .tools input:not([type="checkbox"]) { width: 100%; min-width: 0; padding
 .nag .btn { margin-top: 6px; display: block; }
 #sub-official .card { margin-bottom: 14px; }
 
+/* Match mode */
+.start-match { width: 100%; }
+.match-bar { position: sticky; top: var(--hdr, 96px); z-index: 4; background: #221d12; color: #f7f4ec; border-radius: 12px; padding: 12px 14px; display: grid; gap: 6px; box-shadow: 0 6px 18px rgb(0 0 0 / .18); }
+.match-bar .mb-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.match-bar .mb-phase { font-family: var(--display); font-weight: 800; font-size: 22px; letter-spacing: .08em; text-transform: uppercase; color: #f0b43a; }
+.match-bar .mb-who { font-size: 13px; opacity: .8; text-align: right; }
+.match-bar .mb-clock { font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 1; font-variant-numeric: tabular-nums; }
+.match-bar .mb-progress { height: 6px; border-radius: 3px; background: rgb(255 255 255 / .18); overflow: hidden; }
+.match-bar .mb-progress b { display: block; height: 100%; background: #f0b43a; transition: width .25s linear; }
+.match-bar .mb-cue { margin: 0; font-weight: 700; font-size: 14px; }
+.match-bar .mb-ctl { display: flex; gap: 6px; }
+.match-bar .mb-ctl .btn { background: transparent; color: #f7f4ec; border-color: rgb(255 255 255 / .35); }
+.match-bar .mb-ctl .btn:last-child { margin-left: auto; }
+.match-bar[data-phase="transition"] .mb-phase, .match-bar.endgame .mb-phase { color: #fff; }
+.match-bar[data-phase="transition"] { background: #5b4a1c; }
+.match-bar.endgame { background: #8a2a1d; }
+.match-bar[data-phase="after"] { background: #2f7a47; }
+.match-bar[data-phase="after"] .mb-phase { color: #fff; }
+.match-bar[data-phase="after"] .mb-clock { font-size: 26px; }
+
+/* Quick-note tags */
+.tag-chips .chip.tag[aria-pressed="true"] { background: var(--honey); border-color: var(--honey); color: var(--honey-ink); }
+.tag-chips .chip.tag.warn[aria-pressed="true"] { background: var(--warn); border-color: var(--warn); color: #fff; }
+.tag-chips .chip.tag.bad[aria-pressed="true"] { background: var(--bad); border-color: var(--bad); color: #fff; }
+.tag-chips .chip { padding: 10px 14px; font-size: 15px; }
+
 /* Lead lock */
 .lead-login { text-align: center; margin: 28px 0 0; }
 .linklike { border: 0; background: none; color: var(--muted); font-size: 14px; text-decoration: underline; padding: 8px; }

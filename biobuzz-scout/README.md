@@ -21,6 +21,10 @@ It's a plain website hosted free on GitHub Pages. Once a phone has opened it and
 
 **Event morning:** once the lead has the schedule, tap **Get schedule from lead** on the Scout tab and point your camera at the lead's code. If it comes in parts, scan every part.
 
+**Match mode (recommended):** after picking your position and match, tap **Start match** right when the match starts. The screen shows only **Auto** with a 0:30 countdown, then an 8-second transition, then only **Teleop** with a 2:00 countdown. The bar turns red at 1:00 left for the endgame. When time runs out, it shows the result and notes questions and **Save report**. If the match is delayed or you started late, use **‹ Back** and **Next ›** to move between periods. **Full form** shows everything again. If the phone locks or the app closes mid-match, reopening it picks the timer back up.
+
+**Quick notes:** in Teleop and after the match, tap any chips that apply: *Fast cycles, Great driver, Tips the Hive, Wins Flowers, Plays defense, Slow intake, Got penalties, Robot tipped over*. It's much faster than typing. The lead sees counts like "Plays defense 3/4" and can filter by them. Use the notes box only for anything unusual.
+
 **During the event:**
 1. **Scout** tab: tap your **alliance position** (**Red 1, Red 2, Blue 1, Blue 2**; required) and enter the match number. The team number and name fill in. You can change spots any match. With no schedule, just type the team number. Then tap through the match, using **+** for every piece scored and every missed shot.
 2. Tap **Save report**. The match number moves up by one, ready for the next match.
@@ -100,6 +104,8 @@ Every season has a new game, so the questions change. **You only edit one file: 
    - `label`: the question scouts see. `short` is the column heading on the lead's screens.
    - `tone` (optional): `"good"`, `"warn"` or `"bad"` colors that option's badge.
    - Counters all add into the **Total** column, except ones marked `miss: true` (missed shots). Those are used for the **Accuracy** columns instead.
+   - A checks field with `tags: true` shows as quick-note chips. Keep the list short (8 or fewer) so scouts actually use it.
+   - Each section's `phase` (`"auto"`, `"teleop"` or `"after"`) decides when match mode shows it. Match lengths are in `matchTiming`.
    - Give choice or checks options an `rp:` number, such as `rp: 3` on Win, and the lead's screens add up **ranking points** per match.
 
 5. Click **Commit changes**. GitHub Pages republishes in about a minute.

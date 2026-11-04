@@ -88,15 +88,30 @@
         </div>
       </div>`;
     if (f.type === "text") return `<label class="f">${esc(f.label)}<textarea data-text="${k}" maxlength="${f.maxLength || 280}" placeholder="${esc(f.placeholder || "")}"></textarea></label>`;
+    if (f.tags) return `<div class="q"><span>${esc(f.label)}</span><div class="chips tag-chips" role="group" aria-label="${esc(f.label)}">
+      ${f.options.map(o => `<button type="button" class="chip tag ${o.tone || ""}" data-check="${k}" data-val='${esc(JSON.stringify(o.id))}' aria-pressed="false">${esc(o.label)}</button>`).join("")}
+    </div></div>`;
     const opts = f.type === "yesno" ? [{ id: true, label: "Yes" }, { id: false, label: "No" }] : f.options;
     const attr = f.type === "checks" ? "data-check" : "data-pick";
     return `<div class="q"><span>${esc(f.label)}</span><div class="seg" role="group" aria-label="${esc(f.label)}">
       ${opts.map(o => `<button type="button" class="${o.id === false ? "no" : ""}" ${attr}="${k}" data-val='${esc(JSON.stringify(o.id))}' aria-pressed="false">${esc(o.label)}</button>`).join("")}
     </div></div>`;
   }
+  const phasesOf = s => [].concat(s.phase || "after");
   F.innerHTML = `
     <div class="banner" id="install-hint" hidden></div>
-    <div class="card">
+    <div class="match-bar" id="match-bar" hidden>
+      <div class="mb-top"><span class="mb-phase" id="mb-phase"></span><span class="mb-who" id="mb-who"></span></div>
+      <div class="mb-clock" id="mb-clock" aria-live="off"></div>
+      <div class="mb-progress"><b id="mb-progress"></b></div>
+      <p class="mb-cue" id="mb-cue" hidden></p>
+      <div class="mb-ctl">
+        <button type="button" class="btn small" id="mb-back">‹ Back</button>
+        <button type="button" class="btn small" id="mb-next">Next ›</button>
+        <button type="button" class="btn small" id="mb-exit">Full form</button>
+      </div>
+    </div>
+    <div class="card" id="head-card">
       <p class="event-line" id="event-line"></p>
       <div class="q" id="spot-row"><span>Alliance position</span><div class="seg" role="group" aria-label="Alliance position">
         ${SPOTS.map((s, i) => `<button type="button" class="spot ${i < 2 ? "red" : "blue"}" data-spot="${i}" aria-pressed="false">${s}</button>`).join("")}
@@ -110,14 +125,16 @@
       <p class="hint" id="sched-line"></p>
       <p class="hint warn" id="dup-hint" hidden></p>
       <div class="actions"><button type="button" class="btn small" id="get-schedule">Get schedule from lead</button></div>
+      <button type="button" class="btn primary start-match" id="start-match">Start match</button>
+      <p class="hint">Tap <b>Start match</b> when the match starts. The screen shows only Auto, then switches to Teleop by itself.</p>
     </div>
     ${C.sections.map(s => {
       const counters = s.fields.filter(f => f.type === "counter").map(f => fieldHtml(byKey[s.id + "." + f.id])).join("");
       const rest = s.fields.filter(f => f.type !== "counter").map(f => fieldHtml(byKey[s.id + "." + f.id])).join("");
-      return `<div class="card"><h2 class="section-h">${esc(s.title)}</h2>${s.hint ? `<p class="hint">${esc(s.hint)}</p>` : ""}${counters ? `<div class="counters">${counters}</div>` : ""}${rest}</div>`;
+      return `<div class="card" data-phase="${phasesOf(s).join(" ")}"><h2 class="section-h">${esc(s.title)}</h2>${s.hint ? `<p class="hint">${esc(s.hint)}</p>` : ""}${counters ? `<div class="counters">${counters}</div>` : ""}${rest}</div>`;
     }).join("")}
     <p class="err" id="form-err" hidden></p>
-    <div class="actions">
+    <div class="actions" id="form-actions">
       <button type="button" class="btn" id="reset">Clear</button>
       <button type="submit" class="btn primary">Save report</button>
     </div>`;
@@ -210,12 +227,91 @@
     saveDraft();
   });
 
+
+  // ===================================================================
+  //  MATCH MODE
+  //  "Start match" runs a timer and shows only the sections for the current
+  //  period: Auto, the transition, Teleop, then the after-match questions.
+  // ===================================================================
+  const MT = Object.assign({ auto: 30, transition: 8, teleop: 120, endgameAt: 0, endgameText: "" }, C.matchTiming || {});
+  const PHASE_LABEL = { auto: "Auto", transition: "Transition", teleop: "Teleop", after: "Match over" };
+  const bounds = { auto: 0, transition: MT.auto, teleop: MT.auto + MT.transition, after: MT.auto + MT.transition + MT.teleop };
+  const ORDER = ["auto", "transition", "teleop", "after"];
+  let mmTimer = null, mmPhase = null, mmCued = false, mmWake = null;
+  const elapsed = () => (Date.now() - form.matchStart) / 1000;
+  const phaseAt = t => t < bounds.transition ? "auto" : t < bounds.teleop ? "transition" : t < bounds.after ? "teleop" : "after";
+  const clock = sec => { sec = Math.max(0, Math.ceil(sec)); return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`; };
+  function mmCards(phase) {
+    const show = phase === "transition" ? "auto" : phase;
+    F.querySelectorAll(".card[data-phase]").forEach(c => (c.hidden = !c.dataset.phase.split(" ").includes(show)));
+    $("#head-card").hidden = true; $("#install-hint").hidden = true;
+    $("#form-actions").hidden = phase !== "after";
+  }
+  function mmTick() {
+    if (!form.matchStart) return;
+    const t = elapsed(), phase = phaseAt(t);
+    if (phase !== mmPhase) {
+      const first = mmPhase === null; mmPhase = phase; mmCards(phase);
+      if (!first) { try { navigator.vibrate && navigator.vibrate([80, 60, 80]); } catch {} beep(true); window.scrollTo({ top: 0, behavior: "smooth" }); }
+      if (phase === "after") stopMatchTimer(false);
+    }
+    const bar = $("#match-bar"); bar.dataset.phase = phase;
+    $("#mb-phase").textContent = PHASE_LABEL[phase];
+    const left = phase === "after" ? 0 : bounds[ORDER[ORDER.indexOf(phase) + 1]] - t;
+    $("#mb-clock").textContent = phase === "after" ? "Fill in the result" : phase === "transition" ? `Teleop in ${Math.ceil(left)}` : clock(left);
+    const span = phase === "after" ? 1 : bounds[ORDER[ORDER.indexOf(phase) + 1]] - bounds[phase];
+    $("#mb-progress").style.width = phase === "after" ? "100%" : `${Math.min(100, (t - bounds[phase]) / span * 100)}%`;
+    const endgame = phase === "teleop" && MT.endgameAt && left <= MT.endgameAt;
+    bar.classList.toggle("endgame", !!endgame);
+    $("#mb-cue").hidden = !(endgame && MT.endgameText); $("#mb-cue").textContent = MT.endgameText;
+    if (endgame && !mmCued) { mmCued = true; try { navigator.vibrate && navigator.vibrate(200); } catch {} beep(true); }
+    $("#mb-back").disabled = phase === "auto";
+    $("#mb-next").hidden = phase === "after";
+  }
+  function paintWho() {
+    $("#mb-who").textContent = [form.match && `Match ${form.match}`, form.spot != null && SPOTS[form.spot], form.team].filter(Boolean).join(" · ");
+  }
+  async function startMatch() {
+    try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); } catch {}
+    form.matchStart = Date.now(); saveDraft();
+    enterMatchMode();
+    try { mmWake = await navigator.wakeLock.request("screen"); } catch {}
+  }
+  function enterMatchMode() {
+    document.body.classList.add("match-mode");
+    $("#match-bar").hidden = false; mmPhase = null; mmCued = elapsed() >= bounds.after - MT.endgameAt;
+    paintWho(); mmTick(); window.scrollTo(0, 0);
+    clearInterval(mmTimer); if (phaseAt(elapsed()) !== "after") mmTimer = setInterval(mmTick, 250);
+  }
+  function stopMatchTimer(release = true) {
+    clearInterval(mmTimer); mmTimer = null;
+    if (release) { try { mmWake && mmWake.release(); } catch {} mmWake = null; }
+  }
+  function exitMatchMode() {
+    stopMatchTimer(); form.matchStart = null; saveDraft(); mmPhase = null;
+    document.body.classList.remove("match-mode"); $("#match-bar").hidden = true;
+    F.querySelectorAll(".card").forEach(c => (c.hidden = false)); $("#form-actions").hidden = false;
+    if (!standalone) $("#install-hint").hidden = false;
+  }
+  // Back / Next jump the timer to the start of the previous or next period.
+  function jumpPhase(dir) {
+    const i = ORDER.indexOf(phaseAt(elapsed())) + dir; if (i < 0 || i >= ORDER.length) return;
+    form.matchStart = Date.now() - bounds[ORDER[i]] * 1000 - 50; saveDraft();
+    if (ORDER[i] !== "after" && !mmTimer) mmTimer = setInterval(mmTick, 250);
+    mmCued = false; mmTick();
+  }
+  $("#start-match").addEventListener("click", startMatch);
+  $("#mb-exit").addEventListener("click", exitMatchMode);
+  $("#mb-back").addEventListener("click", () => jumpPhase(-1));
+  $("#mb-next").addEventListener("click", () => jumpPhase(1));
+
   F.addEventListener("submit", e => {
     e.preventDefault();
     const err = $("#form-err");
     const team = form.team.trim(), match = form.match.trim(), scouter = form.scouter.trim();
     const missing = [form.spot == null && "alliance position", !team && "team number", !match && "match number", !scouter && "your name"].filter(Boolean);
     if (missing.length) {
+      if (document.body.classList.contains("match-mode")) exitMatchMode(); // show the top of the form to fix it
       err.hidden = false; err.textContent = `Add ${missing.join(", ")} before saving.`;
       if (form.spot == null) $("#spot-row").scrollIntoView({ block: "center" });
       else document.getElementById(!team ? "f-team" : !match ? "f-match" : "f-scouter").focus();
@@ -229,6 +325,7 @@
     toast(leadUnlocked ? `Saved: team ${team}, match ${match}. It's already in your lead results.` : `Saved: team ${team}, match ${match}. Hand off when the lead asks.`);
     const next = blankForm(); next.match = /^\d+$/.test(match) ? String(+match + 1) : match;
     next.spot = form.spot;
+    if (document.body.classList.contains("match-mode")) exitMatchMode();
     form = next; nameTouched = false; applySchedule(); store.set("draft", form);
     paintForm(); window.scrollTo({ top: 0, behavior: "smooth" });
     renderChrome();
@@ -694,7 +791,7 @@
         const frac = {}; let mixed = false;
         for (const o of f.options) { frac[o.id] = mean(vals.map(a => (a || []).includes(o.id) ? 1 : 0)); if (frac[o.id] > 0 && frac[o.id] < 1) mixed = true; }
         e.v[f.key] = frac;
-        if (mixed && reps.length > 1) e.flags.push(`${f.short || f.label} disagrees`);
+        if (mixed && reps.length > 1 && !f.tags) e.flags.push(`${f.short || f.label} disagrees`);
       }
     }
     e.total = SCORED.reduce((s, f) => s + e.v[f.key], 0);
@@ -726,6 +823,7 @@
         if (f.type === "yesno") { const b = es.map(e => e.v[f.key]).filter(x => x === true || x === false); r.rate[f.key] = b.length ? b.filter(Boolean).length / b.length : null; }
         if (f.type === "choice") { r.counts[f.key] = {}; for (const o of f.options) r.counts[f.key][o.id] = es.filter(e => e.v[f.key] === o.id).length; }
         if (f.type === "checks") { r.rate[f.key] = {}; for (const o of f.options) r.rate[f.key][o.id] = mean(es.map(e => e.v[f.key][o.id])); }
+        if (f.tags) { r.tagged = r.tagged || {}; r.tagged[f.key] = {}; for (const o of f.options) r.tagged[f.key][o.id] = es.filter(e => e.v[f.key][o.id] > 0).length; }
       }
       r.avgTotal = mean(es.map(e => e.total)); r.best = Math.max(...es.map(e => e.total));
       for (const s of ACC_SECTIONS) r.acc[s.id] = accuracy(es, s);
@@ -752,7 +850,7 @@
   function renderMatches(c) {
     const el = $("#matches");
     if (!c.byMatch.size) { el.innerHTML = `<div class="empty"><strong>No matches yet</strong>Scan a scout's phone on the Scan tab and their matches show up here.</div>`; return; }
-    const head = `<tr><th>Team</th><th>Total</th>${RP_FIELDS.length ? "<th>RP</th>" : ""}${COUNTERS.map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.label)}</th>`).join("")}${OTHER.map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.short || f.label)}</th>`).join("")}<th>Scouts</th></tr>`;
+    const head = `<tr><th>Team</th><th>Total</th>${RP_FIELDS.length ? "<th>RP</th>" : ""}${COUNTERS.map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.label)}</th>`).join("")}${OTHER.filter(f => !f.tags).map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.short || f.label)}</th>`).join("")}<th>Scouts</th></tr>`;
     // With a schedule, also list scheduled matches up to the latest one scouted, so gaps show.
     const keys = new Set(c.byMatch.keys());
     const sched = !tools.allEvents && schedule && schedule.event === event.code ? schedule : null;
@@ -776,7 +874,7 @@
             <td class="tot">${fmt(e.total)}</td>
             ${RP_FIELDS.length ? `<td>${fmt(e.rp)}</td>` : ""}
             ${COUNTERS.map(f => `<td>${counterCell(f, e.v[f.key])}</td>`).join("")}
-            ${OTHER.map(f => `<td>${f.type === "yesno" ? yn(e.v[f.key]) : f.type === "choice" ? choicePill(f, e.v[f.key]) : f.options.filter(o => e.v[f.key][o.id] >= 0.5).map(o => esc(o.short || o.label)).join(", ") || "–"}</td>`).join("")}
+            ${OTHER.filter(f => !f.tags).map(f => `<td>${f.type === "yesno" ? yn(e.v[f.key]) : f.type === "choice" ? choicePill(f, e.v[f.key]) : f.options.filter(o => e.v[f.key][o.id] >= 0.5).map(o => esc(o.short || o.label)).join(", ") || "–"}</td>`).join("")}
             <td>${e.n}</td></tr>`).join("")}
         </tbody></table></div>` : ""}
         ${es.filter(e => e.flags.length).map(e => `<p class="flag">Team ${esc(e.team)}: ${e.flags.map(esc).join(" · ")} (${e.reports.map(r => esc(r.scouter)).join(", ")})</p>`).join("")}
@@ -821,6 +919,9 @@
       if (f.type === "choice") cols.push({ id: f.key, group: f.section.short, label: f.short || f.label, sortLabel: `${f.short || f.label}: most “${f.options[0].label}”`,
         sort: r => r.counts[f.key][f.options[0].id] / r.matches,
         html: r => f.options.filter(o => r.counts[f.key][o.id]).map(o => `<span class="pill ${o.tone || ""}">${esc(o.short || o.label)} ${r.counts[f.key][o.id]}</span>`).join(" ") || "–" });
+      if (f.tags) { cols.push({ id: f.key, label: f.short || f.label, sortLabel: `${f.short || f.label} (most tagged)`,
+        sort: r => f.options.reduce((s, o) => s + r.tagged[f.key][o.id], 0),
+        html: r => f.options.filter(o => r.tagged[f.key][o.id]).map(o => `<span class="pill ${o.tone || ""}">${esc(o.short || o.label)} ${r.tagged[f.key][o.id]}/${r.matches}</span>`).join(" ") || "–" }); continue; }
       if (f.type === "checks") cols.push({ id: f.key, group: f.section.short, label: f.short || f.label, sortLabel: `${f.short || f.label} earned`,
         sort: r => f.options.reduce((s, o) => s + (r.rate[f.key][o.id] || 0), 0),
         html: r => f.options.filter(o => r.rate[f.key][o.id] > 0).map(o => `${esc(o.short || o.label)} ${pct(r.rate[f.key][o.id])}`).join(" · ") || "–" });
@@ -835,22 +936,29 @@
       return { id: f.key, label: `${f.short || f.label}: ${o.label.replace(/\s*\(.*\)$/, "")}`, test: r => r.counts[f.key][o.id] / r.matches >= 0.5 };
     }),
     { id: "twoPlus", label: "Scouted 2+ matches", test: r => r.matches >= 2 },
+    // Quick-note tags count if any scout tapped them in any match.
+    ...FIELDS.filter(f => f.tags).flatMap(f => f.options.map(o => ({ id: f.key + ":" + o.id, label: o.label, tag: o.tone || "plain", test: r => r.tagged[f.key][o.id] > 0 }))),
   ];
   tools.filters = tools.filters.filter(id => FILTERS.some(f => f.id === id));
   function paintRobotTools() {
     $("#robot-sort").innerHTML = robotColumns().map(col => `<option value="${esc(col.id)}" ${col.id === sortKey ? "selected" : ""}>${esc(col.sortLabel)}</option>`).join("");
     $("#robot-dir").textContent = sortDir < 0 ? "High → low" : "Low → high";
-    $("#robot-filters").innerHTML = FILTERS.map(f => `<button type="button" class="chip" data-filter="${esc(f.id)}" aria-pressed="${tools.filters.includes(f.id)}">${esc(f.label)}</button>`).join("");
+    const chip = f => `<button type="button" class="chip${f.tag ? " tag " + f.tag : ""}" data-filter="${esc(f.id)}" aria-pressed="${tools.filters.includes(f.id)}">${esc(f.label)}</button>`;
+    $("#robot-filters").innerHTML = FILTERS.filter(f => !f.tag).map(chip).join("");
+    $("#tag-filters").innerHTML = FILTERS.filter(f => f.tag).map(chip).join("");
+    $("#tag-filter-row").hidden = !FILTERS.some(f => f.tag);
     if ($("#robot-find").value !== tools.find) $("#robot-find").value = tools.find;
   }
   $("#robot-sort").addEventListener("change", e => { sortKey = e.target.value; sortDir = sortKey === "team" ? 1 : -1; saveTools(); renderLead(); });
   $("#robot-dir").addEventListener("click", () => { sortDir = -sortDir; saveTools(); renderLead(); });
-  $("#robot-filters").addEventListener("click", e => {
+  const toggleFilter = e => {
     const b = e.target.closest("[data-filter]"); if (!b) return;
     const id = b.dataset.filter;
     tools.filters = tools.filters.includes(id) ? tools.filters.filter(x => x !== id) : [...tools.filters, id];
     saveTools(); renderLead();
-  });
+  };
+  $("#robot-filters").addEventListener("click", toggleFilter);
+  $("#tag-filters").addEventListener("click", toggleFilter);
   $("#robot-find").addEventListener("input", e => { tools.find = e.target.value; saveTools(); renderRobots(consolidate(), true); });
 
   function renderRobots(c, keepTools) {
@@ -862,7 +970,8 @@
     const q = tools.find.trim().toLowerCase();
     const active = FILTERS.filter(f => tools.filters.includes(f.id));
     const shown = c.robots.filter(r => active.every(f => f.test(r)) && (!q || r.team.startsWith(q) || r.teamName.toLowerCase().includes(q)));
-    $("#robot-count").textContent = shown.length === c.robots.length ? `Showing all ${shown.length} teams` : `Showing ${shown.length} of ${c.robots.length} teams`;
+    const teamsWord = n => n === 1 ? "1 team" : `${n} teams`;
+    $("#robot-count").textContent = shown.length === c.robots.length ? `Showing ${c.robots.length === 1 ? "1 team" : "all " + teamsWord(shown.length)}` : `Showing ${shown.length} of ${teamsWord(c.robots.length)}`;
     if (!shown.length) { el.innerHTML = `<div class="empty"><strong>No teams match</strong>Untick a filter or clear the search to see more.</div>`; return; }
     const rs = [...shown].sort((a, b) => {
       const x = sc.sort(a), y = sc.sort(b);
@@ -879,7 +988,12 @@
   }
   function detailRow(r, span) {
     const texts = FIELDS.filter(f => f.type === "text");
-    const notes = r.entries.flatMap(e => e.reports.flatMap(x => texts.filter(f => x.v[f.key]).map(f => ({ m: e.matchKey, s: x.scouter, t: x.v[f.key] }))));
+    const tagFields = FIELDS.filter(f => f.tags);
+    const notes = r.entries.flatMap(e => e.reports.flatMap(x => {
+      const tags = tagFields.flatMap(f => (x.v[f.key] || []).map(id => (f.options.find(o => o.id === id) || {}).label).filter(Boolean));
+      const text = texts.map(f => x.v[f.key]).filter(Boolean).join(" ");
+      return tags.length || text ? [{ m: e.matchKey, s: x.scouter, t: [tags.join(" · "), text].filter(Boolean).join(" — ") }] : [];
+    }));
     return `<tr class="detail"><td colspan="${span}"><div class="detail-grid">
       <div><h3>Every report</h3><div class="scroll"><table class="mini">
         <thead><tr><th>Match</th><th>Position</th>${COUNTERS.map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.label)}</th>`).join("")}<th>Total</th>${OTHER.filter(f => f.type !== "checks").map(f => `<th>${esc(f.short || f.label)}</th>`).join("")}<th>Scout</th><th></th></tr></thead>
@@ -1399,4 +1513,8 @@
 
   paintForm();
   show("scout");
+  // Reopened mid-match: pick the timer back up (or drop a stale one).
+  if (form.matchStart) { if (elapsed() < bounds.after + 600) enterMatchMode(); else { form.matchStart = null; store.set("draft", form); } }
+  const setHdr = () => document.documentElement.style.setProperty("--hdr", $("header.top").offsetHeight + "px");
+  setHdr(); addEventListener("resize", setHdr);
 })();
