@@ -75,7 +75,7 @@ Every season has a new game, so the questions change. **You only edit one file: 
 
 > **Don't change fields in the middle of an event.** A phone with old settings and a phone with new settings refuse each other's codes, with a message telling the scout to update. That keeps bad data out, but it's a hassle mid-competition.
 
-To pre-fill team names, add them to `teams` in `config.js`: `"1234": "Hive Mind",`.
+**Team names:** `teams.js` holds every Michigan FTC team (from [FTCScout](https://ftcscout.org/teams?regions=USMI)), so scouts only type the number. To add an out-of-state team or fix a name, add it to `teams` in `config.js`, for example `"1234": "Hive Mind",`. Entries there win over `teams.js`. To refresh the whole list for a new season, ask whoever maintains the app to re-download it from FTCScout.
 
 ## Publishing on GitHub Pages (one-time setup)
 
@@ -86,7 +86,7 @@ To pre-fill team names, add them to `teams` in `config.js`: `"1234": "Hive Mind"
 
 ## How it works (for the curious)
 
-- `index.html`, `styles.css` and `app.js` are the app. `config.js` holds the season's questions.
+- `index.html`, `styles.css` and `app.js` are the app. `config.js` holds the season's questions. `teams.js` holds Michigan team names.
 - `sw.js` saves the app on the phone so it opens offline. It always shows the saved copy first, then downloads any update in the background for next time.
 - Reports are stored in the phone's browser storage. Clearing Safari or Chrome website data erases them, so hand off before doing that.
 - QR codes hold several reports each, packed tightly. A long backlog splits into "Code 1 of 3…".

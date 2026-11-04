@@ -3,7 +3,7 @@
 // so pushing changes to GitHub reaches phones the next time they open the app online.
 const CACHE = "scout-v1";
 const FILES = [
-  "./", "index.html", "styles.css", "app.js", "config.js", "manifest.webmanifest",
+  "./", "index.html", "styles.css", "app.js", "config.js", "teams.js","manifest.webmanifest",
   "vendor/qrcode-generator.js", "vendor/jsQR.js",
   "fonts/barlow-condensed-latin-600-normal.woff2", "fonts/barlow-condensed-latin-700-normal.woff2", "fonts/barlow-condensed-latin-800-normal.woff2",
   "fonts/atkinson-hyperlegible-latin-400-normal.woff2", "fonts/atkinson-hyperlegible-latin-700-normal.woff2",

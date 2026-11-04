@@ -31,7 +31,8 @@ window.SCOUT_CONFIG = {
   // scouts watched the same robot in the same match.
   flagDifference: 3,
 
-  // Optional: known team names, so scouts only have to type the number.
+  // Every Michigan FTC team is already in teams.js. Use this only to add a team
+  // from another state or fix a name; anything here wins over teams.js.
   // Format: "team number": "team name"
   teams: {
     // "1234": "Hive Mind",

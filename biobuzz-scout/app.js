@@ -46,9 +46,9 @@
   let form = Object.assign(blankForm(), store.get("draft", {}));
   form.v = Object.assign(blankValues(), form.v);
 
-  // Team names: config first, then whatever scouts have typed.
+  // Team names: the Michigan list (teams.js), then config overrides, then whatever scouts have typed.
   function teamNames() {
-    const names = { ...(C.teams || {}) };
+    const names = { ...(window.SCOUT_TEAMS || {}), ...(C.teams || {}) };
     const all = [...Object.values(lead), ...Object.values(mine)].sort((a, b) => a.at - b.at);
     for (const r of all) if (r.teamName) names[r.team] = r.teamName;
     return names;
@@ -82,7 +82,7 @@
       <div class="fields">
         <label class="f">Team number<input class="big" id="f-team" inputmode="numeric" autocomplete="off" placeholder="1234"></label>
         <label class="f">Match number<input class="big" id="f-match" inputmode="numeric" autocomplete="off" placeholder="12"></label>
-        <label class="f full">Team name<input id="f-teamName" autocomplete="off" placeholder="Fills in once anyone has entered it"></label>
+        <label class="f full">Team name<input id="f-teamName" autocomplete="off" placeholder="Fills in from the team number"></label>
         <label class="f full">Your name<input id="f-scouter" autocomplete="name" placeholder="Scout name"></label>
       </div>
       <p class="hint warn" id="dup-hint" hidden></p>
