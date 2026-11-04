@@ -200,6 +200,34 @@ select, .tools input:not([type="checkbox"]) { width: 100%; min-width: 0; padding
 .by-code summary { cursor: pointer; font-size: 14px; color: var(--muted); padding: 4px 0; }
 .by-code .tool-row { margin-top: 8px; }
 
+/* Pick list */
+.star { border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; padding: 0 6px 0 0; vertical-align: -1px; }
+.star.on { color: var(--honey); }
+.tier-tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: var(--sunk); color: var(--muted); vertical-align: 1px; }
+.tier-tag.first { background: var(--good-soft); color: var(--good); }
+.tier-tag.second { background: var(--honey-soft); color: var(--ink); }
+.tier-tag.avoid { background: var(--bad-soft); color: var(--bad); }
+.tier-tag.star { color: var(--honey); background: none; font-size: 14px; padding: 0; }
+.tier { margin-bottom: 18px; }
+.tier h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-family: var(--display); font-size: 20px; text-transform: uppercase; letter-spacing: .05em; }
+.tier h3 span { font-family: var(--body); font-size: 12px; color: var(--muted); background: var(--sunk); border-radius: 999px; padding: 1px 8px; }
+.tier.first h3 { color: var(--good); } .tier.avoid h3 { color: var(--bad); }
+.picklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.pick { display: grid; grid-template-columns: 26px 1fr auto; gap: 8px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.pick-n { font-family: var(--display); font-weight: 800; font-size: 20px; color: var(--muted); text-align: center; }
+.pick-team { min-width: 0; }
+.pick-team small { display: block; color: var(--muted); font-size: 12px; }
+.pick-ctl { display: flex; gap: 4px; align-items: center; }
+.pick-ctl select { width: auto; padding: 6px 4px; font-size: 14px; }
+.pick-ctl .btn.small { padding: 6px 9px; }
+@media (max-width: 520px) { .pick { grid-template-columns: 22px 1fr; } .pick-ctl { grid-column: 1 / -1; justify-content: flex-end; } }
+
+/* Official results + backups */
+.official-line { margin: 0; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+.nag { margin-top: 8px; }
+.nag .btn { margin-top: 6px; display: block; }
+#sub-official .card { margin-bottom: 14px; }
+
 /* Lead lock */
 .lead-login { text-align: center; margin: 28px 0 0; }
 .linklike { border: 0; background: none; color: var(--muted); font-size: 14px; text-decoration: underline; padding: 8px; }

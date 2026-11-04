@@ -53,12 +53,22 @@ Once a schedule is loaded, **Matches** also lists robots nobody scouted, in red.
 2. Point at each scout's code. A beep plus a green banner means it worked. Scanning the same code twice is harmless.
 3. **Scouts heard from** shows who has handed off and up to which match. Use it to spot who you missed.
 4. Check **Matches** and **Robots** for the merged results. Tap a team for every report and all the notes. Orange **!** marks are places two scouts disagreed.
-5. **Data** tab: tap **Save backup** every few matches and at lunch. Everything the lead scans lives only on that device. If it dies, restore the backup on another device with **Restore or combine a backup**.
+5. **Data** tab: tap **Save backup** every few matches and at lunch. Everything the lead scans lives only on that device. If it dies, restore the backup on another device with **Restore or combine a backup**. After every 5 new reports, the app reminds you with a banner after scanning and a **!** on the Data tab.
 6. **Save spreadsheet (CSV)** opens in Excel or Google Sheets for alliance selection.
 
 **If the camera won't start:** use **Take or pick a photo of the code** under the viewfinder. On an iPhone home-screen app, check **Settings → Safari → Camera**.
 
-**More than one lead device:** each lead saves a backup and loads the other's backup with **Restore or combine a backup**. Duplicates are skipped automatically.
+**Second lead phone:** to copy everything (reports, deletions, pick lists) to another phone with no internet, go to **Data → Second lead phone → Show transfer codes**. On the other phone, unlock Lead, open **Scan**, start the camera and point it at the codes. They change every 1.5 seconds and loop, and the receiving phone says when every part is in. Use it to share the lead role or to swap if a battery is dying. A saved backup file also works with **Restore or combine a backup**.
+
+**Pick list:** tap ☆ next to a team on **Robots** to star it. On **Picks**, sort teams into **1st pick**, **2nd pick** or **Avoid** with the menu, and order each tier with ▲ ▼. Tier labels show on Robots and in the spreadsheet, and **Save pick list (CSV)** exports just the list. Pick lists are kept per event.
+
+**Official results:** when you have internet, open **Official → Download official results**. It pulls scores and rankings from FTCScout and saves them for offline use. It then shows:
+- **Scout check:** how often each scout's match result and bonus RP agree with the official score, with each mistake listed.
+- **Official rankings** beside your scouted averages.
+- Official scores on each **Matches** card, with any scouted result that doesn't match.
+- An **Official rank** column on **Robots**.
+
+Bonus RP checking works when FTCScout's ranking-point names match the option names in `config.js` (for example "Swarm" → `swarmRp`). Download again later for newer matches.
 
 **End of the day:** scouts can clear old reports on **Hand off** → **Delete handed-off reports**. Save a lead backup first.
 

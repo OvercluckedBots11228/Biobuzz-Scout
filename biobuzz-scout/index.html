@@ -56,7 +56,9 @@
       <button role="tab" data-sub="schedule" aria-selected="false">Schedule</button>
       <button role="tab" data-sub="matches" aria-selected="false">Matches</button>
       <button role="tab" data-sub="robots" aria-selected="false">Robots</button>
-      <button role="tab" data-sub="data" aria-selected="false">Data</button>
+      <button role="tab" data-sub="picks" aria-selected="false">Picks</button>
+      <button role="tab" data-sub="official" aria-selected="false">Official</button>
+      <button role="tab" data-sub="data" aria-selected="false">Data<span class="badge" id="badge-backup" hidden>!</span></button>
     </nav>
 
     <div id="sub-scan" class="narrow">
@@ -157,7 +159,23 @@
       <div id="robots"></div>
     </div>
 
+    <div id="sub-picks" hidden>
+      <div class="toolbar"><div><h2>Pick list</h2><p>Plan alliance selection. Star teams on the Robots screen or here, sort them into tiers, and use the arrows to put each tier in order. Saved on this phone, works offline.</p></div>
+        <button type="button" class="btn small" id="picks-csv">Save pick list (CSV)</button></div>
+      <div id="picks"></div>
+    </div>
+
+    <div id="sub-official" hidden>
+      <div class="toolbar"><div><h2>Official results</h2><p>When you have internet, download the event's official scores and rankings from FTCScout. They're saved on this phone and shown beside your scouting, so you can spot scouts who record results or ranking points differently from the referees.</p></div></div>
+      <div class="tools">
+        <div class="tool-row"><button type="button" class="btn primary" id="official-download">Download official results</button></div>
+        <div id="official-msg" aria-live="polite"></div>
+      </div>
+      <div id="official"></div>
+    </div>
+
     <div id="sub-data" class="narrow" hidden>
+      <div class="banner warn" id="backup-nag" hidden></div>
       <div class="card">
         <h2 class="section-h">Lead data</h2>
         <div class="stats" id="data-stats"></div>
@@ -168,6 +186,12 @@
         </div>
         <label class="hint">Restore or combine a backup: <input type="file" id="import-backup" accept=".json,application/json"></label>
         <div id="data-msg" aria-live="polite"></div>
+      </div>
+      <div class="card">
+        <h2 class="section-h">Second lead phone</h2>
+        <p class="hint">Copy everything on this phone (reports, deletions and pick lists) to another lead phone, for a backup or to hand over the lead role. On the other phone: unlock Lead, open <b>Scan</b>, start the camera, and point it here. The codes change by themselves; keep scanning until it says every part is in.</p>
+        <div class="actions"><button type="button" class="btn" id="xfer-show">Show transfer codes</button></div>
+        <div id="xfer"></div>
       </div>
       <div class="card">
         <h2 class="section-h">Change the lead PIN</h2>

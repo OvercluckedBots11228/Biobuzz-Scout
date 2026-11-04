@@ -30,6 +30,9 @@
   let seen = store.get("seen", {});        // scout name -> { at, matches, count }
   let schedule = store.get("schedule", null); // { event, ver, matches: { "12": [red1, red2, blue1, blue2] }, parts: { n, got } }
   const SPOTS = ["Red 1", "Red 2", "Blue 1", "Blue 2"];
+  let picks = store.get("picks", {});           // { [event]: { first: [], second: [], star: [], avoid: [] } } team numbers in order
+  let official = store.get("official", {});     // { [event]: { at, matches: { "1": { teams, red, blue } }, teams: { "5618": { rank, rs, w, l, t } } } }
+  let sinceBackup = store.get("sinceBackup", 0); // reports added since the lead last saved a backup
   // The event this phone is on: picked by the lead, or taken from a scanned schedule.
   let event = store.get("event", null) || { code: C.event.code, name: C.event.name };
   let eventTeams = store.get("eventTeams", {}); // { code, names: { "5618": "Control Freaks RED" } }
@@ -219,11 +222,11 @@
       return;
     }
     err.hidden = true;
-    const r = { id: newId(), team, match, scouter, teamName: form.teamName.trim(), at: Date.now(), spot: form.spot, event: event.code, v: JSON.parse(JSON.stringify(form.v)), sent: false };
+    const r = { id: newId(), team, match, scouter, teamName: form.teamName.trim(), at: Date.now(), spot: form.spot, event: event.code, v: JSON.parse(JSON.stringify(form.v)), sent: leadUnlocked };
     for (const f of FIELDS) if (f.type === "text") r.v[f.key] = (r.v[f.key] || "").trim();
     mine[r.id] = r;
     if (!store.set("mine", mine)) { delete mine[r.id]; return; }
-    toast(`Saved: team ${team}, match ${match}. Hand off when the lead asks.`);
+    toast(leadUnlocked ? `Saved: team ${team}, match ${match}. It's already in your lead results.` : `Saved: team ${team}, match ${match}. Hand off when the lead asks.`);
     const next = blankForm(); next.match = /^\d+$/.test(match) ? String(+match + 1) : match;
     next.spot = form.spot;
     form = next; nameTouched = false; applySchedule(); store.set("draft", form);
@@ -310,7 +313,9 @@
         <p class="hint">${codes.length > 1 ? "Let the lead scan every code. " : ""}Turn your screen brightness up if the lead's camera struggles.</p>
         <ul class="list">${list.filter(r => code.ids.includes(r.id)).map(r => `<li><span>Match ${esc(r.match)} · ${r.spot != null ? esc(SPOTS[r.spot]) + " · " : ""}Team ${esc(r.team)}</span><span>${r.sent ? "handed off before" : esc(ago(r.at))}</span></li>`).join("")}</ul>
         ${showAll ? "" : `<button type="button" class="btn primary" id="mark-sent">Lead scanned it</button>`}
-      </div>` : `<div class="banner good"><strong>All caught up</strong>Every report on this phone has been handed off.</div>`}
+      </div>` : leadUnlocked
+        ? `<div class="banner good"><strong>Nothing to hand off on the lead's phone</strong>Reports you scout here go straight into your Matches and Robots results.</div>`
+        : `<div class="banner good"><strong>All caught up</strong>Every report on this phone has been handed off.</div>`}
       <div class="card">
         <label class="switch"><input type="checkbox" id="show-all" ${showAll ? "checked" : ""}> Show reports already handed off (${sentCount}), in case the lead needs them again</label>
         ${sentCount ? `<div class="actions"><button type="button" class="btn small danger" id="clear-sent">Delete handed-off reports from this phone</button></div>` : ""}
@@ -394,6 +399,7 @@
   }
   function importCode(text) {
     if (text.startsWith("BBSCH1|")) return importScheduleCode(text);
+    if (text.startsWith("BBT1|") && leadUnlocked) return importTransferCode(text);
     if (!leadUnlocked) { beep(false); showResult("bad", "That's a scout's report code", "Only the lead's phone collects reports. Scan the schedule code on the lead's Schedule screen."); return; }
     const res = parseCode(text);
     if (res.error) { beep(false); showResult("bad", "Not added", res.error); return; }
@@ -404,18 +410,21 @@
     const what = res.reports.map(r => `M${r.match}·${r.team}`).join(", ");
     showResult(added ? "good" : "", added ? `Added ${added} new report${added > 1 ? "s" : ""} from ${who}` : `Already have these from ${who}`,
       `${what}${dup && added ? ` (${dup} already had)` : ""}`);
+    if (added) backupNag();
     renderChrome();
   }
-  function addToLead(reports) {
+  function addToLead(reports, quiet) {
     let added = 0, dup = 0;
     for (const r of reports) {
       if (lead[r.id] || removed[r.id]) { dup++; continue; }
       lead[r.id] = r; added++;
+      if (quiet) continue; // copied from another lead phone: not a scout hand-off
       const s = seen[r.scouter] || { at: 0, matches: [], count: 0 };
       s.at = Date.now(); s.count++; if (!s.matches.includes(r.match)) s.matches.push(r.match);
       seen[r.scouter] = s;
     }
     store.set("lead", lead); store.set("seen", seen);
+    if (added) { sinceBackup += added; store.set("sinceBackup", sinceBackup); }
     return { added, dup };
   }
   $("#cam-toggle").addEventListener("click", () => (stream ? stopCamera() : startCamera()));
@@ -755,6 +764,8 @@
     const cards = [...keys].sort(natural).reverse().map(m => {
       const es = (c.byMatch.get(m) || []).sort((a, b) => b.total - a.total), flags = es.reduce((s, e) => s + e.flags.length, 0);
       const row = sched && sched.matches[String(+m)];
+      const om = !tools.allEvents && official[event.code] && official[event.code].matches[String(+m)];
+      const offLine = om ? `<p class="official-line">Official: <b class="red-t">Red ${om.red.total}</b> · <b class="blue-t">Blue ${om.blue.total}</b>${es.map(e => e.reports.map(r => checkReport(r, official[event.code])).filter(k => k && k.result && !k.result.ok).map(k => ` · <span class="pill warn">${esc(e.team)}: scouted ${esc(k.result.scouted)}, was ${esc(k.result.actual)}</span>`).join("")).join("")}</p>` : "";
       const spotOf = e => { const i = row ? row.findIndex(x => String(x) === String(e.team)) : -1; return i >= 0 ? i : e.spot ?? -1; };
       const missing = row ? row.map((t, i) => [t, i]).filter(([t]) => !es.some(e => e.team === String(t))) : [];
       if (tools.matchCheck && !flags && !missing.length) return "";
@@ -769,6 +780,7 @@
             <td>${e.n}</td></tr>`).join("")}
         </tbody></table></div>` : ""}
         ${es.filter(e => e.flags.length).map(e => `<p class="flag">Team ${esc(e.team)}: ${e.flags.map(esc).join(" · ")} (${e.reports.map(r => esc(r.scouter)).join(", ")})</p>`).join("")}
+        ${offLine}
         ${missing.length ? `<p class="missing">Not scouted: ${missing.map(([t, i]) => `${SPOTS[i]} ${esc(t)}${c.names[t] ? ` ${esc(c.names[t])}` : ""}`).join(" · ")}</p>` : ""}
         </article>`;
     }).join("");
@@ -794,7 +806,8 @@
   const saveTools = () => { Object.assign(tools, { sortKey, sortDir }); store.set("tools", tools); };
   function robotColumns() {
     const cols = [
-      { id: "team", label: "Team", sortLabel: "Team number", sort: r => r.team, html: r => `${esc(r.team)}${r.flags ? ' <span class="pill warn" title="Scouts disagreed somewhere">!</span>' : ""}<small>${esc(r.teamName)}</small>`, cls: "team" },
+      { id: "team", label: "Team", sortLabel: "Team number", sort: r => r.team, html: r => { const t = tierOf(r.team); return `<button type="button" class="star ${t ? "on" : ""}" data-star="${esc(r.team)}" aria-label="${t ? "On pick list" : "Star"} ${esc(r.team)}">${t ? "★" : "☆"}</button>${esc(r.team)}${r.flags ? ' <span class="pill warn" title="Scouts disagreed somewhere">!</span>' : ""} ${t && t !== "star" ? tierTag(t) : ""}<small>${esc(r.teamName)}</small>`; }, cls: "team" },
+      ...(official[event.code] && Object.keys(official[event.code].teams).length && !tools.allEvents ? [{ id: "offRank", label: "Rank", group: "official", sortLabel: "Official rank", sort: r => { const o = official[event.code].teams[r.team]; return o ? -o.rank : null; }, html: r => { const o = official[event.code].teams[r.team]; return o ? `#${o.rank}` : "–"; } }] : []),
       { id: "avgTotal", group: "avg", label: "Total", sortLabel: "Total pieces (average)", sort: r => r.avgTotal, html: r => fmt(r.avgTotal), cls: "tot" },
       { id: "best", label: "Best", sortLabel: "Best single match", sort: r => r.best, html: r => fmt(r.best) },
       { id: "matches", label: "Matches", sortLabel: "Matches scouted", sort: r => r.matches, html: r => r.matches },
@@ -883,6 +896,14 @@
     </div></td></tr>`;
   }
   $("#robots").addEventListener("click", e => {
+    const star = e.target.closest("[data-star]");
+    if (star) {
+      const t = tierOf(star.dataset.star);
+      if (!t) { setTier(star.dataset.star, "star"); toast(`Starred ${star.dataset.star}. Sort it into a tier on Picks.`); }
+      else if (t === "star") setTier(star.dataset.star, null);
+      else toast(`${star.dataset.star} is on your ${TIERS.find(x => x[0] === t)[1]} list. Change it on Picks.`);
+      renderLead(); return;
+    }
     const del = e.target.closest("[data-del]");
     if (del) {
       if (!del.dataset.armed) { del.dataset.armed = "1"; del.textContent = "Confirm"; return; }
@@ -924,7 +945,7 @@
   const stamp = () => new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
   $("#export-csv").addEventListener("click", () => {
     const cell = v => { if (v === true) v = "Yes"; else if (v === false) v = "No"; else if (v == null) v = ""; else if (Array.isArray(v)) v = v.join(" + "); v = String(v); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
-    const head = ["Event", "Match", "Alliance position", "Team", "Team name", "Scout", ...FIELDS.map(f => `${f.section.title}: ${f.short || f.label}`), "Saved at"];
+    const head = ["Event", "Match", "Alliance position", "Team", "Team name", "Scout", ...FIELDS.map(f => `${f.section.title}: ${f.short || f.label}`), "Saved at", "Pick list"];
     const names = teamNames();
     const rows = allLeadReports().sort((a, b) => natural(a.event || "", b.event || "") || natural(a.match, b.match) || natural(a.team, b.team)).map(r =>
       [r.event || "", r.match, r.spot != null ? SPOTS[r.spot] : "", r.team, r.teamName || names[r.team] || "", r.scouter, ...FIELDS.map(f => {
@@ -932,13 +953,15 @@
         if (f.type === "choice") { const o = f.options.find(o => o.id === v); return o ? o.label : ""; }
         if (f.type === "checks") return (v || []).map(id => (f.options.find(o => o.id === id) || {}).label).join(" + ");
         return v;
-      }), new Date(r.at).toLocaleString()].map(cell).join(","));
+      }), new Date(r.at).toLocaleString(), (TIERS.find(x => x[0] === tierOf(r.team, r.event || "")) || [, ""])[1]].map(cell).join(","));
     if (!rows.length) { toast("Nothing to save yet."); return; }
     saveFile(`${C.season}-scouting-${stamp()}.csv`, [head.map(cell).join(","), ...rows].join("\n"), "text/csv");
   });
-  $("#export-backup").addEventListener("click", () => {
-    saveFile(`${C.season}-backup-${stamp()}.json`, JSON.stringify({ app: "bbs", season: C.season, sig: SIG, lead: { ...mine, ...lead }, removed, seen }), "application/json");
-  });
+  function saveBackup() {
+    saveFile(`${C.season}-backup-${stamp()}.json`, JSON.stringify({ app: "bbs", season: C.season, sig: SIG, lead: { ...mine, ...lead }, removed, seen, picks, official }), "application/json");
+    sinceBackup = 0; store.set("sinceBackup", 0); renderChrome();
+  }
+  $("#export-backup").addEventListener("click", saveBackup);
   $("#import-backup").addEventListener("change", async e => {
     const file = e.target.files[0]; e.target.value = ""; if (!file) return;
     const msg = $("#data-msg");
@@ -948,7 +971,9 @@
       Object.assign(removed, data.removed || {});
       const { added } = addToLead(Object.values(data.lead || {}).map(r => { const { sent, ...rest } = r; return rest; }));
       for (const [n, s] of Object.entries(data.seen || {})) if (!seen[n] || seen[n].at < s.at) seen[n] = s;
-      store.set("removed", removed); store.set("seen", seen);
+      for (const [ev, pl] of Object.entries(data.picks || {})) mergePicks(ev, pl);
+      for (const [ev, o] of Object.entries(data.official || {})) if (!official[ev] || official[ev].at < o.at) official[ev] = o;
+      store.set("removed", removed); store.set("seen", seen); store.set("picks", picks); store.set("official", official);
       msg.innerHTML = `<div class="banner good"><strong>Backup loaded</strong>${added} new report${added === 1 ? "" : "s"} added.</div>`;
       renderChrome();
     } catch (err) {
@@ -962,6 +987,276 @@
     store.set("lead", lead); store.set("removed", removed); store.set("seen", seen);
     delete b.dataset.armed; b.textContent = "Clear lead data"; toast("Lead data cleared."); renderChrome();
   });
+
+  // ===================================================================
+  //  LEAD: BACKUP REMINDER
+  //  The lead's phone holds the only merged copy, so nudge every 5 new reports.
+  // ===================================================================
+  const NAG_EVERY = 5;
+  function backupNag() {
+    if (sinceBackup < NAG_EVERY) return;
+    $("#scan-result").insertAdjacentHTML("beforeend", `<div class="banner warn nag"><strong>${sinceBackup} new reports since your last backup</strong>The lead's phone holds the only merged copy. <button type="button" class="btn small" data-act="backup">Save backup now</button></div>`);
+  }
+  function paintBackupNag() {
+    const due = leadUnlocked && sinceBackup >= NAG_EVERY;
+    $("#badge-backup").hidden = !due;
+    const n = $("#backup-nag");
+    n.hidden = !due;
+    if (due) n.innerHTML = `<strong>${sinceBackup} new reports since your last backup</strong>Tap <b>Save backup</b> below. If this phone dies, a backup can be restored on another phone.`;
+  }
+  document.addEventListener("click", e => { if (e.target.closest('[data-act="backup"]')) saveBackup(); });
+
+  // ===================================================================
+  //  LEAD: PICK LIST
+  // ===================================================================
+  const TIERS = [["first", "1st pick"], ["second", "2nd pick"], ["star", "Starred"], ["avoid", "Avoid"]];
+  const emptyPicks = () => ({ first: [], second: [], star: [], avoid: [] });
+  const eventPicks = () => (picks[event.code] = Object.assign(emptyPicks(), picks[event.code] || {}));
+  function tierOf(team, ev = event.code) {
+    const p = picks[ev]; if (!p) return null;
+    for (const [t] of TIERS) if ((p[t] || []).includes(String(team))) return t;
+    return null;
+  }
+  function setTier(team, tier) {
+    const p = eventPicks(); team = String(team);
+    for (const [t] of TIERS) p[t] = p[t].filter(x => x !== team);
+    if (tier) p[tier].push(team);
+    store.set("picks", picks);
+  }
+  function movePick(team, dir) {
+    const p = eventPicks(), t = tierOf(team); if (!t) return;
+    const a = p[t], i = a.indexOf(String(team)), j = i + dir;
+    if (j < 0 || j >= a.length) return;
+    [a[i], a[j]] = [a[j], a[i]];
+    store.set("picks", picks);
+  }
+  // Adds another phone's picks without undoing this phone's choices.
+  function mergePicks(ev, other) {
+    const p = picks[ev] = Object.assign(emptyPicks(), picks[ev] || {});
+    const placed = new Set(TIERS.flatMap(([t]) => p[t]));
+    for (const [t] of TIERS) for (const team of (other[t] || [])) if (!placed.has(String(team))) { p[t].push(String(team)); placed.add(String(team)); }
+  }
+  const tierTag = t => t ? `<span class="tier-tag ${t}">${t === "star" ? "★" : esc(TIERS.find(x => x[0] === t)[1])}</span>` : "";
+
+  function renderPicks(c) {
+    const el = $("#picks"), p = eventPicks(), names = teamNames();
+    const byTeam = Object.fromEntries(c.robots.map(r => [r.team, r]));
+    const off = (official[event.code] || {}).teams || {};
+    const all = new Set([...c.robots.map(r => r.team), ...((eventTeams.code === event.code && eventTeams.numbers) || []).map(String)]);
+    const row = (team, tier, i, len) => {
+      const r = byTeam[team], o = off[team];
+      return `<li class="pick">
+        <span class="pick-n">${tier && tier !== "star" ? i + 1 : ""}</span>
+        <span class="pick-team"><b>${esc(team)}</b> ${esc(names[team] || "")}
+          <small>${r ? `${fmt(r.avgTotal)} pieces/match · ${r.matches} scouted${r.accAll != null ? ` · ${pct(r.accAll)} accuracy` : ""}${r.avgRp != null ? ` · ${fmt(r.avgRp)} RP` : ""}` : "Not scouted yet"}${o ? ` · Official #${o.rank}` : ""}</small></span>
+        <span class="pick-ctl">
+          ${tier && tier !== "star" ? `<button type="button" class="btn small" data-pmove="-1" data-team="${esc(team)}" aria-label="Move ${esc(team)} up" ${i === 0 ? "disabled" : ""}>▲</button>
+          <button type="button" class="btn small" data-pmove="1" data-team="${esc(team)}" aria-label="Move ${esc(team)} down" ${i === len - 1 ? "disabled" : ""}>▼</button>` : ""}
+          <select data-ptier="${esc(team)}" aria-label="Tier for ${esc(team)}">
+            <option value="">—</option>${TIERS.map(([t, l]) => `<option value="${t}" ${t === tier ? "selected" : ""}>${l}</option>`).join("")}
+          </select>
+        </span>
+      </li>`;
+    };
+    const placed = new Set(TIERS.flatMap(([t]) => p[t]));
+    const rest = [...all].filter(t => !placed.has(t)).sort((a, b) => ((byTeam[b] || {}).avgTotal ?? -1) - ((byTeam[a] || {}).avgTotal ?? -1) || natural(a, b));
+    el.innerHTML = TIERS.map(([t, label]) => `
+      <section class="tier ${t}"><h3>${esc(label)} <span>${p[t].length}</span></h3>
+        ${p[t].length ? `<ol class="picklist">${p[t].map((team, i) => row(team, t, i, p[t].length)).join("")}</ol>` : `<p class="hint">${t === "star" ? "Tap ☆ next to a team on the Robots screen, or pick “Starred” below." : "None yet. Use the menu next to a team to add it here."}</p>`}
+      </section>`).join("") + `
+      <section class="tier rest"><h3>Everyone else <span>${rest.length}</span></h3>
+        ${rest.length ? `<ol class="picklist">${rest.map(team => row(team, null, 0, 0)).join("")}</ol>` : `<p class="hint">Teams appear here once scouted, or after downloading the event's teams on the Schedule screen.</p>`}
+      </section>`;
+  }
+  $("#picks").addEventListener("click", e => {
+    const b = e.target.closest("[data-pmove]"); if (!b) return;
+    movePick(b.dataset.team, +b.dataset.pmove); renderLead();
+  });
+  $("#picks").addEventListener("change", e => {
+    const s = e.target.closest("[data-ptier]"); if (!s) return;
+    setTier(s.dataset.ptier, s.value || null); renderLead();
+  });
+  $("#picks-csv").addEventListener("click", () => {
+    const c = consolidate(), byTeam = Object.fromEntries(c.robots.map(r => [r.team, r])), names = teamNames(), p = eventPicks();
+    const off = (official[event.code] || {}).teams || {};
+    const cell = v => { v = v == null ? "" : String(v); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+    const head = ["Event", "Tier", "Order", "Team", "Team name", "Matches scouted", "Avg pieces", "Accuracy", "Avg RP", "Official rank"];
+    const rows = TIERS.flatMap(([t, label]) => p[t].map((team, i) => {
+      const r = byTeam[team] || {};
+      return [event.code, label, t === "star" ? "" : i + 1, team, names[team] || "", r.matches || 0, r.avgTotal != null ? fmt(r.avgTotal) : "", r.accAll != null ? pct(r.accAll) : "", r.avgRp != null ? fmt(r.avgRp) : "", (off[team] || {}).rank || ""].map(cell).join(",");
+    }));
+    if (!rows.length) { toast("The pick list is empty."); return; }
+    saveFile(`${C.season}-${event.code}-picks-${stamp()}.csv`, [head.join(","), ...rows].join("\n"), "text/csv");
+  });
+
+  // ===================================================================
+  //  LEAD: OFFICIAL RESULTS (FTCScout)
+  // ===================================================================
+  // Match a bonus-RP option in config.js (e.g. "Pollinator 1") to FTCScout's field (e.g. "pollinator1Rp").
+  const squash = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, "");
+  function officialRpKey(o, sample) {
+    const want = [squash(o.label), squash(o.id)];
+    return Object.keys(sample || {}).find(k => /rp$/i.test(k) && want.some(w => w && squash(k).replace(/rp$/, "") === w)) || null;
+  }
+  async function downloadOfficial() {
+    const msg = $("#official-msg"), btn = $("#official-download"), code = event.code;
+    btn.disabled = true; btn.textContent = "Downloading…";
+    try {
+      const base = `${FTCSCOUT}/rest/v1/events/${C.ftcSeason}/${encodeURIComponent(code)}`;
+      const [mr, tr] = await Promise.all([fetch(base + "/matches", { cache: "no-store" }), fetch(base + "/teams", { cache: "no-store" })]);
+      if (mr.status === 404) throw new Error(`FTCScout doesn't know event ${code}.`);
+      if (!mr.ok || !tr.ok) throw new Error("FTCScout didn't answer properly. Try again in a minute.");
+      const matches = {}, teams = {};
+      for (const m of await mr.json()) {
+        if (m.tournamentLevel !== "Quals" || !m.hasBeenPlayed || !m.scores) continue;
+        const at = (a, st) => ((m.teams || []).find(x => x.alliance === a && x.station === st) || {}).teamNumber;
+        const side = sc => { const o = { total: sc.totalPoints, np: sc.totalPointsNp, auto: sc.autoPoints, rp: {} }; for (const [k, v] of Object.entries(sc)) if (/rp$/i.test(k)) o.rp[k] = !!v; return o; };
+        matches[String(m.id)] = { teams: [at("Red", "One"), at("Red", "Two"), at("Blue", "One"), at("Blue", "Two")].map(String), red: side(m.scores.red), blue: side(m.scores.blue) };
+      }
+      for (const t of await tr.json()) if (t.stats && t.stats.rank) teams[String(t.teamNumber)] = { rank: t.stats.rank, rs: t.stats.rp, w: t.stats.wins, l: t.stats.losses, t: t.stats.ties, played: t.stats.qualMatchesPlayed };
+      official[code] = { at: Date.now(), matches, teams };
+      store.set("official", official);
+      const n = Object.keys(matches).length;
+      msg.innerHTML = n ? `<div class="banner good"><strong>${n} official matches and ${Object.keys(teams).length} team rankings downloaded</strong>Saved on this phone. Download again later for newer matches.</div>`
+        : `<div class="banner warn"><strong>No official results yet for ${esc(code)}</strong>FTCScout shows results shortly after each match is played. Try again later.</div>`;
+    } catch (e) {
+      msg.innerHTML = `<div class="banner bad"><strong>Couldn't download official results</strong>${esc(e instanceof TypeError ? "No internet connection right now. Try again when you have a signal." : e.message)}</div>`;
+    } finally { btn.disabled = false; btn.textContent = "Download official results"; renderLead(); }
+  }
+  $("#official-download").addEventListener("click", downloadOfficial);
+
+  // Compares one scout report with the official result for its match.
+  const RESULT_FIELD = FIELDS.find(f => f.type === "choice" && f.options.some(o => o.id === "win") && f.options.some(o => o.id === "loss"));
+  const BONUS_FIELD = FIELDS.find(f => f.type === "checks" && f.options.some(o => typeof o.rp === "number"));
+  function checkReport(r, off) {
+    const m = off && off.matches[String(+r.match)];
+    if (!m) return null;
+    const i = m.teams.indexOf(String(r.team)); if (i < 0) return null;
+    const mine = i < 2 ? m.red : m.blue, theirs = i < 2 ? m.blue : m.red;
+    const out = { result: null, rp: [], alliance: i < 2 ? "Red" : "Blue" };
+    if (RESULT_FIELD && r.v[RESULT_FIELD.key] && mine.total != null) {
+      const actual = mine.total > theirs.total ? "win" : mine.total < theirs.total ? "loss" : "tie";
+      if (RESULT_FIELD.options.some(o => o.id === actual)) out.result = { scouted: r.v[RESULT_FIELD.key], actual, ok: r.v[RESULT_FIELD.key] === actual };
+    }
+    if (BONUS_FIELD) for (const o of BONUS_FIELD.options) {
+      const k = officialRpKey(o, mine.rp); if (!k) continue;
+      const said = (r.v[BONUS_FIELD.key] || []).includes(o.id);
+      out.rp.push({ label: o.label, said, actual: mine.rp[k], ok: said === mine.rp[k] });
+    }
+    return out;
+  }
+  function renderOfficial(c) {
+    const el = $("#official"), off = official[event.code];
+    if (!off) { el.innerHTML = `<div class="empty"><strong>No official results on this phone yet</strong>Tap <b>Download official results</b> when you have internet, for example at lunch or between matches.</div>`; return; }
+    const names = teamNames(), byTeam = Object.fromEntries(c.robots.map(r => [r.team, r]));
+    // Scout check: how often each scout's result and bonus RP match the referees.
+    const per = {};
+    for (const r of allLeadReports().filter(x => (x.event || "") === event.code)) {
+      const k = checkReport(r, off); if (!k) continue;
+      const s = per[r.scouter] = per[r.scouter] || { n: 0, res: [0, 0], rp: [0, 0], misses: [] };
+      s.n++;
+      if (k.result) { s.res[1]++; if (k.result.ok) s.res[0]++; else s.misses.push(`M${r.match} ${r.team}: said ${k.result.scouted}, was ${k.result.actual}`); }
+      for (const x of k.rp) { s.rp[1]++; if (x.ok) s.rp[0]++; else s.misses.push(`M${r.match} ${r.team}: ${x.label} ${x.said ? "marked" : "missed"}`); }
+    }
+    const rate = ([a, b]) => b ? a / b : null;
+    const pill = v => v == null ? "–" : `<span class="pill ${v >= 0.9 ? "good" : v >= 0.75 ? "warn" : "bad"}">${pct(v)}</span>`;
+    const scouts = Object.entries(per).sort((a, b) => (rate(a[1].rp) ?? 1) - (rate(b[1].rp) ?? 1));
+    const ranks = Object.entries(off.teams).sort((a, b) => a[1].rank - b[1].rank);
+    el.innerHTML = `
+      <p class="hint">Official results for ${esc(event.name)}, downloaded ${esc(ago(off.at))}: ${Object.keys(off.matches).length} matches.</p>
+      <div class="card"><h2 class="section-h">Scout check</h2>
+        <p class="hint">How often each scout's match result and bonus RP agree with the official score. Low numbers usually mean a scout needs a quick refresher.</p>
+        ${scouts.length ? `<div class="scroll"><table><thead><tr><th>Scout</th><th>Result right</th><th>Bonus RP right</th><th>Checked</th></tr></thead>
+          <tbody>${scouts.map(([name, s]) => `<tr><td class="team">${esc(name)}</td><td>${pill(rate(s.res))}</td><td>${pill(rate(s.rp))}</td><td>${s.n}</td></tr>`).join("")}</tbody></table></div>
+          ${scouts.some(([, s]) => s.misses.length) ? `<ul class="notes">${scouts.filter(([, s]) => s.misses.length).map(([name, s]) => `<li><em>${esc(name)} · ${s.misses.length} to review</em>${esc(s.misses.slice(0, 6).join(" · "))}${s.misses.length > 6 ? " …" : ""}</li>`).join("")}</ul>` : ""}`
+          : `<p class="hint">None of your reports match an official match yet.</p>`}
+      </div>
+      <div class="card"><h2 class="section-h">Official rankings</h2>
+        ${ranks.length ? `<div class="scroll"><table><thead><tr><th>Team</th><th>Rank</th><th>RS</th><th>W-L-T</th><th><span class="grp">scouted</span>Pieces</th><th><span class="grp">scouted</span>RP</th></tr></thead>
+          <tbody>${ranks.map(([t, o]) => { const r = byTeam[t]; return `<tr><td class="team">${tierTag(tierOf(t))} ${esc(t)}<small>${esc(names[t] || "")}</small></td><td>${o.rank}</td><td>${fmt(o.rs)}</td><td>${o.w}-${o.l}-${o.t}</td><td>${r ? fmt(r.avgTotal) : "–"}</td><td>${r && r.avgRp != null ? fmt(r.avgRp) : "–"}</td></tr>`; }).join("")}</tbody></table></div>`
+          : `<p class="hint">Rankings appear once qualification matches have been played.</p>`}
+      </div>`;
+  }
+
+  // ===================================================================
+  //  LEAD: SECOND LEAD PHONE (transfer by QR)
+  //  "BBT1|<season>|<fingerprint>|<transfer id>|<part>/<parts>|" + JSON rows:
+  //  report rows (as in hand-off codes), ["x", id] deletions, ["p", event, tier, [teams]] picks.
+  // ===================================================================
+  let xferCodes = [], xferIdx = 0, xferTimer = null, xferPaused = false, wakeLock = null;
+  const xferGot = {};
+  function transferCodes() {
+    const id = newId().slice(0, 6);
+    const rows = [
+      ...allLeadReports().map(toRow),
+      ...Object.keys(removed).map(x => ["x", x]),
+      ...Object.entries(picks).flatMap(([ev, p]) => TIERS.filter(([t]) => (p[t] || []).length).map(([t]) => ["p", ev, t, p[t]])),
+    ];
+    const head = (k, n) => `BBT1|${C.season}|${SIG}|${id}|${k}/${n}|`;
+    const chunks = []; let cur = [];
+    for (const r of rows) {
+      if (cur.length && (head(999, 999) + JSON.stringify([...cur, r])).length > MAX_CODE_CHARS) { chunks.push(cur); cur = []; }
+      cur.push(r);
+    }
+    if (cur.length) chunks.push(cur);
+    return chunks.map((c, i) => head(i + 1, chunks.length) + JSON.stringify(c));
+  }
+  function paintXfer() {
+    const el = $("#xfer");
+    if (!xferCodes.length) { el.innerHTML = ""; return; }
+    el.innerHTML = `
+      <div class="qr-nav">
+        <button type="button" class="btn small" data-xf="prev">‹</button>
+        <strong>Part ${xferIdx + 1} of ${xferCodes.length}</strong>
+        <button type="button" class="btn small" data-xf="next">›</button>
+      </div>
+      <div class="qr-box" role="img" aria-label="Transfer code part ${xferIdx + 1}">${qrSvg(xferCodes[xferIdx])}</div>
+      <div class="actions"><button type="button" class="btn" data-xf="pause">${xferPaused ? "Resume" : "Pause"}</button><button type="button" class="btn" data-xf="stop">Done</button></div>
+      <p class="hint">The codes change every 1.5 seconds and loop. Keep the other phone pointed here until it says all ${xferCodes.length} parts are in.</p>`;
+  }
+  function stopXfer() {
+    clearInterval(xferTimer); xferTimer = null; xferCodes = [];
+    try { wakeLock && wakeLock.release(); } catch {} wakeLock = null;
+    paintXfer();
+  }
+  $("#xfer-show").addEventListener("click", async () => {
+    xferCodes = transferCodes(); xferIdx = 0; xferPaused = false;
+    clearInterval(xferTimer);
+    xferTimer = setInterval(() => { if (!xferPaused) { xferIdx = (xferIdx + 1) % xferCodes.length; paintXfer(); } }, 1500);
+    try { wakeLock = await navigator.wakeLock.request("screen"); } catch {}
+    paintXfer();
+  });
+  $("#xfer").addEventListener("click", e => {
+    const b = e.target.closest("[data-xf]"); if (!b) return;
+    const a = b.dataset.xf;
+    if (a === "stop") return stopXfer();
+    if (a === "pause") xferPaused = !xferPaused;
+    if (a === "prev") { xferPaused = true; xferIdx = (xferIdx - 1 + xferCodes.length) % xferCodes.length; }
+    if (a === "next") { xferPaused = true; xferIdx = (xferIdx + 1) % xferCodes.length; }
+    paintXfer();
+  });
+  function importTransferCode(text) {
+    const p = text.split("|");
+    if (p[1] !== C.season || p[2] !== SIG) { beep(false); showResult("bad", "Not copied", "That lead phone has a different version of the app. Open the app on both phones with internet so they update, then try again."); return; }
+    const id = p[3], [k, n] = p[4].split("/").map(Number);
+    let rows;
+    try { rows = JSON.parse(p.slice(5).join("|")); } catch { beep(false); showResult("bad", "Couldn't read that code", "Hold steady; the next part comes around again."); return; }
+    const reports = [];
+    for (const r of rows) {
+      if (r[0] === "x") removed[r[1]] = true;
+      else if (r[0] === "p") mergePicks(r[1], { [r[2]]: r[3] });
+      else { try { reports.push(fromRow(r)); } catch {} }
+    }
+    store.set("removed", removed); store.set("picks", picks);
+    for (const rid of Object.keys(removed)) delete lead[rid];
+    const { added } = addToLead(reports, true);
+    const got = xferGot[id] = xferGot[id] || new Set(); const fresh = !got.has(k); got.add(k);
+    if (fresh) beep(true);
+    const done = got.size >= n;
+    showResult(done ? "good" : "warn", done ? `Copied everything: all ${n} parts` : `Copying lead data: ${got.size} of ${n} parts`,
+      done ? "This phone now has the other lead's reports, deletions and pick lists. Save a backup here too." : `Keep the camera on the other phone. ${added ? `${added} new report${added > 1 ? "s" : ""} in this part.` : ""}`);
+    renderChrome();
+  }
 
   // ===================================================================
   //  NAVIGATION + CHROME
@@ -978,6 +1273,8 @@
     if (sub === "matches") renderMatches(c);
     if (sub === "robots") renderRobots(c);
     if (sub === "data") renderData(c);
+    if (sub === "picks") renderPicks(c);
+    if (sub === "official") renderOfficial(c);
   }
   function renderChrome() {
     const unsent = Object.values(mine).filter(r => !r.sent).length;
@@ -986,6 +1283,7 @@
     st.className = "status " + (unsent ? "warn" : "good");
     tx.textContent = unsent ? `${unsent} to hand off` : offlineReady ? "Works offline" : "Ready";
     if (view === "handoff") renderHandoff();
+    paintBackupNag();
     renderLead();
     paintDupHint();
   }
@@ -1005,14 +1303,16 @@
     document.querySelectorAll("nav.tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.view === v)));
     for (const id of ["scout", "handoff", "lead"]) $("#view-" + id).hidden = id !== v;
     if (v !== "lead" || sub !== "scan") stopCamera();
+    if (v !== "lead" && xferCodes.length) stopXfer();
     renderChrome();
     window.scrollTo(0, 0);
   }
   function showSub(s) {
     sub = s;
     document.querySelectorAll("nav.subtabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.sub === s)));
-    for (const id of ["scan", "schedule", "matches", "robots", "data"]) $("#sub-" + id).hidden = id !== s;
+    for (const id of ["scan", "schedule", "matches", "robots", "picks", "official", "data"]) $("#sub-" + id).hidden = id !== s;
     if (s !== "scan") stopCamera();
+    if (s !== "data" && xferCodes.length) stopXfer();
     renderLead();
   }
   document.querySelectorAll("nav.tabs button").forEach(b => b.addEventListener("click", () => show(b.dataset.view)));
@@ -1021,6 +1321,7 @@
   // A convenience lock, not real security: it keeps scouts out of the Lead screens.
   let leadUnlocked = true;
   if (C.leadPinHash) { leadUnlocked = false; try { leadUnlocked = localStorage.getItem("bbs:lead") === C.leadPinHash; } catch {} }
+  if (leadUnlocked && Object.values(mine).some(r => !r.sent)) { for (const r of Object.values(mine)) r.sent = true; store.set("mine", mine); }
   async function pinHash(pin) {
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bbs-lead:" + pin));
     return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
@@ -1048,6 +1349,9 @@
     if (h !== C.leadPinHash) { $("#pin-err").hidden = false; $("#pin-input").select(); return; }
     leadUnlocked = true;
     try { localStorage.setItem("bbs:lead", h); } catch {}
+    // Reports already on the lead's phone are in the lead's results, so nothing is left to hand off.
+    for (const r of Object.values(mine)) r.sent = true;
+    store.set("mine", mine);
     $("#pin-overlay").hidden = true;
     show("lead"); toast("Lead mode is on for this phone.");
   });
@@ -1090,7 +1394,7 @@
   document.title = C.appName;
 
   // test hooks for the README's troubleshooting steps and automated checks
-  window.__scout = { buildCodes, parseCode, importCode, qrSvg, consolidate, FIELDS, scheduleCodes, parseScheduleText, getSchedule: () => schedule, getEvent: () => event, pickEvent, setEvent };
+  window.__scout = { buildCodes, parseCode, importCode, qrSvg, consolidate, FIELDS, scheduleCodes, parseScheduleText, getSchedule: () => schedule, getEvent: () => event, pickEvent, setEvent, setTier, tierOf, transferCodes, getSinceBackup: () => sinceBackup, getOfficial: () => official };
 
   paintForm();
   show("scout");
