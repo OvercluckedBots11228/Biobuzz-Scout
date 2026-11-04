@@ -24,6 +24,8 @@
   let lead = store.get("lead", {});        // reports the lead has scanned: id -> report
   let removed = store.get("removed", {});  // ids the lead deleted, so a rescan doesn't bring them back
   let seen = store.get("seen", {});        // scout name -> { at, matches, count }
+  let schedule = store.get("schedule", null); // { event, ver, matches: { "12": [red1, red2, blue1, blue2] }, parts: { n, got } }
+  const SPOTS = ["Red 1", "Red 2", "Blue 1", "Blue 2"];
 
   // ---------- small helpers ----------
   const $ = s => document.querySelector(s);
@@ -79,13 +81,18 @@
   F.innerHTML = `
     <div class="banner" id="install-hint" hidden></div>
     <div class="card">
+      <div class="q" id="spot-row" hidden><span>Which robot are you watching?</span><div class="seg" role="group" aria-label="Alliance spot">
+        ${SPOTS.map((s, i) => `<button type="button" class="spot ${i < 2 ? "red" : "blue"}" data-spot="${i}" aria-pressed="false">${s}</button>`).join("")}
+      </div></div>
       <div class="fields">
         <label class="f">Team number<input class="big" id="f-team" inputmode="numeric" autocomplete="off" placeholder="1234"></label>
         <label class="f">Match number<input class="big" id="f-match" inputmode="numeric" autocomplete="off" placeholder="12"></label>
         <label class="f full">Team name<input id="f-teamName" autocomplete="off" placeholder="Fills in from the team number"></label>
         <label class="f full">Your name<input id="f-scouter" autocomplete="name" placeholder="Scout name"></label>
       </div>
+      <p class="hint" id="sched-line"></p>
       <p class="hint warn" id="dup-hint" hidden></p>
+      <div class="actions"><button type="button" class="btn small" id="get-schedule">Get schedule from lead</button></div>
     </div>
     ${C.sections.map(s => {
       const counters = s.fields.filter(f => f.type === "counter").map(f => fieldHtml(byKey[s.id + "." + f.id])).join("");
@@ -107,7 +114,29 @@
     F.querySelectorAll("[data-pick]").forEach(b => b.setAttribute("aria-pressed", String(JSON.stringify(form.v[b.dataset.pick]) === b.dataset.val)));
     F.querySelectorAll("[data-check]").forEach(b => b.setAttribute("aria-pressed", String(form.v[b.dataset.check].includes(JSON.parse(b.dataset.val)))));
     F.querySelectorAll("[data-text]").forEach(el => { if (el.value !== form.v[el.dataset.text]) el.value = form.v[el.dataset.text]; });
-    paintDupHint();
+    F.querySelectorAll("[data-spot]").forEach(b => b.setAttribute("aria-pressed", String(form.spot === +b.dataset.spot)));
+    paintDupHint(); paintSchedLine();
+  }
+
+  // With a schedule loaded, the match number + spot decide the team.
+  function applySchedule() {
+    const row = schedule && form.spot != null && schedule.matches[String(+form.match.trim())];
+    if (!row || !row[form.spot]) return;
+    form.team = String(row[form.spot]);
+    form.teamName = teamNames()[form.team] || "";
+    nameTouched = false;
+  }
+  function paintSchedLine() {
+    const has = !!(schedule && Object.keys(schedule.matches).length);
+    $("#spot-row").hidden = !has;
+    $("#get-schedule").textContent = has ? "Update schedule from lead" : "Get schedule from lead";
+    const el = $("#sched-line"), m = form.match.trim();
+    if (!has) { el.textContent = "No match schedule on this phone yet. Type the team number, or get the schedule from the lead."; return; }
+    const row = schedule.matches[String(+m)];
+    if (!m) { el.textContent = `Schedule loaded: ${Object.keys(schedule.matches).length} matches. Enter the match number and pick your spot.`; return; }
+    if (!row) { el.textContent = `Match ${m} isn't in the schedule. Type the team number.`; return; }
+    el.innerHTML = `Match ${esc(m)}: <b class="red-t">Red ${esc(row[0])} &amp; ${esc(row[1])}</b> · <b class="blue-t">Blue ${esc(row[2])} &amp; ${esc(row[3])}</b>` +
+      (form.spot == null ? " · pick your spot above" : "");
   }
   function paintDupHint() {
     const h = $("#dup-hint"), t = form.team.trim(), m = form.match.trim();
@@ -127,6 +156,7 @@
     if (k === "teamName") nameTouched = !!el.value;
     if (k === "team" && !nameTouched) { form.teamName = teamNames()[form.team.trim()] || ""; $("#f-teamName").value = form.teamName; }
     if (k === "scouter") try { localStorage.setItem("bbs:name", form.scouter); } catch {}
+    if (k === "match") { const before = form.team; applySchedule(); if (form.team !== before) { $("#f-team").value = form.team; $("#f-teamName").value = form.teamName; } paintSchedLine(); }
     if (k === "team" || k === "match") paintDupHint();
     saveDraft();
   });
@@ -143,6 +173,13 @@
       const v = JSON.parse(b.dataset.val);
       form.v[b.dataset.pick] = form.v[b.dataset.pick] === v ? null : v;
       paintForm();
+    } else if (b.dataset.spot) {
+      form.spot = form.spot === +b.dataset.spot ? null : +b.dataset.spot;
+      applySchedule(); paintForm();
+    } else if (b.id === "get-schedule") {
+      scanReturn = true; show("lead"); showSub("scan"); startCamera();
+      showResult("", "Scan the lead's schedule code", "The lead opens Lead → Schedule and shows the code under “Share with scouts”.");
+      return;
     } else if (b.dataset.check) {
       const k = b.dataset.check, v = JSON.parse(b.dataset.val), arr = form.v[k];
       form.v[k] = arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v];
@@ -172,7 +209,8 @@
     if (!store.set("mine", mine)) { delete mine[r.id]; return; }
     toast(`Saved: team ${team}, match ${match}. Hand off when the lead asks.`);
     const next = blankForm(); next.match = /^\d+$/.test(match) ? String(+match + 1) : match;
-    form = next; nameTouched = false; store.set("draft", form);
+    next.spot = form.spot;
+    form = next; nameTouched = false; applySchedule(); store.set("draft", form);
     paintForm(); window.scrollTo({ top: 0, behavior: "smooth" });
     renderChrome();
   });
@@ -338,6 +376,8 @@
     $("#scan-result").innerHTML = `<div class="banner ${tone}"><strong>${esc(title)}</strong>${esc(body)}</div>`;
   }
   function importCode(text) {
+    if (text.startsWith("BBSCH1|")) return importScheduleCode(text);
+    if (!leadUnlocked) { beep(false); showResult("bad", "That's a scout's report code", "Only the lead's phone collects reports. Scan the schedule code on the lead's Schedule screen."); return; }
     const res = parseCode(text);
     if (res.error) { beep(false); showResult("bad", "Not added", res.error); return; }
     const { added, dup } = addToLead(res.reports);
@@ -369,6 +409,133 @@
       const code = decodeFrom(bmp, bmp.width, bmp.height);
       if (code) { lastText = ""; handleCode(code); } else showResult("bad", "No code found in that photo", "Get closer so the code fills most of the picture, and avoid glare.");
     } catch { showResult("bad", "Couldn't open that photo", "Try taking it again."); }
+  });
+
+  // ===================================================================
+  //  MATCH SCHEDULE
+  //  The lead loads it (FTCScout download, or typed/pasted), then shares it
+  //  by QR: "BBSCH1|<season>|<event>|<version>|<part>/<parts>|" + JSON rows
+  //  of [match, red1, red2, blue1, blue2]. Parts can be scanned in any order.
+  // ===================================================================
+  let scanReturn = false, schedIdx = 0;
+
+  function setSchedule(event, rows) {
+    schedule = { event, ver: Date.now().toString(36), matches: rows, parts: null };
+    store.set("schedule", schedule);
+    schedIdx = 0; applySchedule(); paintForm(); renderChrome();
+  }
+  function scheduleCodes() {
+    const rows = Object.entries(schedule.matches).sort((a, b) => +a[0] - +b[0]).map(([m, t]) => [+m, ...t]);
+    const chunks = []; let cur = [];
+    const head = (k, n) => `BBSCH1|${C.season}|${schedule.event}|${schedule.ver}|${k}/${n}|`;
+    for (const r of rows) {
+      if (cur.length && (head(9, 9) + JSON.stringify([...cur, r])).length > MAX_CODE_CHARS) { chunks.push(cur); cur = []; }
+      cur.push(r);
+    }
+    if (cur.length) chunks.push(cur);
+    return chunks.map((c, i) => head(i + 1, chunks.length) + JSON.stringify(c));
+  }
+  function importScheduleCode(text) {
+    const p = text.split("|");
+    if (p[1] !== C.season) { beep(false); showResult("bad", "Not loaded", `That schedule is for a different season (${p[1]}).`); return; }
+    const [k, n] = p[4].split("/").map(Number);
+    let rows;
+    try { rows = JSON.parse(p.slice(5).join("|")); } catch { beep(false); showResult("bad", "Couldn't read that code", "Try again, holding steady."); return; }
+    if (!schedule || schedule.ver !== p[3]) schedule = { event: p[2], ver: p[3], matches: {}, parts: { n, got: [] } };
+    schedule.parts = schedule.parts || { n, got: [] };
+    for (const [m, ...t] of rows) schedule.matches[String(m)] = t;
+    if (!schedule.parts.got.includes(k)) schedule.parts.got.push(k);
+    store.set("schedule", schedule);
+    beep(true);
+    const done = schedule.parts.got.length >= n, count = Object.keys(schedule.matches).length;
+    if (done) {
+      showResult("good", `Schedule loaded: ${count} matches`, `Event ${schedule.event}. Pick your spot on the Scout tab and the team fills in.`);
+      applySchedule(); paintForm();
+      if (scanReturn) { scanReturn = false; stopCamera(); show("scout"); toast(`Schedule loaded: ${count} matches`); }
+    } else {
+      const missing = Array.from({ length: n }, (_, i) => i + 1).filter(i => !schedule.parts.got.includes(i));
+      showResult("warn", `Got part ${k} of ${n}`, `Now scan part ${missing.join(" and ")}.`);
+    }
+    renderChrome();
+  }
+
+  function parseScheduleText(text) {
+    const rows = {}, skipped = [];
+    for (const raw of text.split(/\r?\n/)) {
+      if (!raw.trim()) continue;
+      const line = raw.replace(/\b\d{1,2}:\d{2}(:\d{2})?\s*([AaPp]\.?[Mm]\.?)?/g, " ").replace(/\b\d{1,2}\/\d{1,2}(\/\d{2,4})?/g, " ");
+      const nums = line.match(/\d+/g) || [];
+      const match = nums.shift();
+      const teams = [];
+      for (const x of nums) if (x.length >= 3 && teams[teams.length - 1] !== +x) teams.push(+x);
+      if (!match || teams.length < 4) { skipped.push(raw.trim()); continue; }
+      rows[String(+match)] = teams.slice(0, 4);
+    }
+    return { rows, skipped };
+  }
+
+  async function downloadSchedule() {
+    const code = $("#event-code").value.trim().toUpperCase(), msg = $("#sched-msg"), btn = $("#sched-download");
+    if (!code) { msg.innerHTML = `<div class="banner bad"><strong>Enter the event code</strong>It's the last part of the event's address, like USMICOQ.</div>`; return; }
+    btn.disabled = true; btn.textContent = "Downloading…";
+    try {
+      const res = await fetch(`https://api.ftcscout.org/rest/v1/events/${C.event.season}/${encodeURIComponent(code)}/matches`, { cache: "no-store" });
+      if (res.status === 404) throw new Error(`FTCScout doesn't know event ${code}. Check the code.`);
+      if (!res.ok) throw new Error("FTCScout didn't answer properly. Try again in a minute.");
+      const rows = {};
+      for (const m of await res.json()) {
+        if (m.tournamentLevel !== "Quals") continue;
+        const at = (a, s) => ((m.teams || []).find(x => x.alliance === a && x.station === s) || {}).teamNumber;
+        const t = [at("Red", "One"), at("Red", "Two"), at("Blue", "One"), at("Blue", "Two")];
+        if (t.every(Boolean)) rows[String(m.id)] = t;
+      }
+      const n = Object.keys(rows).length;
+      if (!n) throw new Error(`The schedule for ${code} isn't posted on FTCScout yet. It usually appears shortly after the event publishes it. Try again in a few minutes, or type it in below.`);
+      setSchedule(code, rows);
+      msg.innerHTML = `<div class="banner good"><strong>Downloaded ${n} qualification matches</strong>Check a few against the printed schedule, then share it with scouts below.</div>`;
+    } catch (e) {
+      const offline = e instanceof TypeError;
+      msg.innerHTML = `<div class="banner bad"><strong>Couldn't download the schedule</strong>${esc(offline ? "No internet connection right now. Find a signal and try again, or type it in below." : e.message)}</div>`;
+    } finally { btn.disabled = false; btn.textContent = "Download from FTCScout"; }
+  }
+
+  function renderSchedule() {
+    const has = !!(schedule && Object.keys(schedule.matches).length);
+    $("#sched-share").hidden = !has; $("#sched-current").hidden = !has;
+    if (!has) return;
+    const codes = scheduleCodes();
+    schedIdx = Math.min(schedIdx, codes.length - 1);
+    const partial = schedule.parts && schedule.parts.got.length < schedule.parts.n;
+    $("#sched-qr").innerHTML = `
+      <div class="qr-nav">
+        <button type="button" class="btn small" data-sq="-1" ${schedIdx === 0 ? "disabled" : ""}>‹ Prev</button>
+        <strong>${codes.length > 1 ? `Part ${schedIdx + 1} of ${codes.length}` : "Schedule code"}</strong>
+        <button type="button" class="btn small" data-sq="1" ${schedIdx >= codes.length - 1 ? "disabled" : ""}>Next ›</button>
+      </div>
+      <div class="qr-box" role="img" aria-label="Schedule QR code part ${schedIdx + 1}">${qrSvg(codes[schedIdx])}</div>
+      ${codes.length > 1 ? `<p class="hint">Scouts need every part. Tap Next after each beep.</p>` : ""}`;
+    const names = teamNames();
+    const ms = Object.keys(schedule.matches).sort((a, b) => +a - +b);
+    $("#sched-title").textContent = `${schedule.event} · ${ms.length} matches`;
+    $("#sched-table").innerHTML = `${partial ? `<p class="hint warn">Only part of the schedule has been scanned. Scan the remaining parts from the lead.</p>` : ""}
+      <div class="scroll"><table class="mini"><thead><tr><th>Match</th>${SPOTS.map((s, i) => `<th class="${i < 2 ? "red-t" : "blue-t"}">${s}</th>`).join("")}</tr></thead>
+      <tbody>${ms.map(m => `<tr><td>${esc(m)}</td>${schedule.matches[m].map(t => `<td title="${esc(names[t] || "")}">${esc(t)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  }
+  $("#event-code").value = (schedule && schedule.event) || (C.event && C.event.code) || "";
+  $("#sched-download").addEventListener("click", downloadSchedule);
+  $("#sched-paste").addEventListener("click", () => {
+    const { rows, skipped } = parseScheduleText($("#sched-text").value);
+    const n = Object.keys(rows).length, msg = $("#sched-paste-msg");
+    if (!n) { msg.innerHTML = `<div class="banner bad"><strong>No matches found</strong>Each line needs a match number followed by four team numbers.</div>`; return; }
+    setSchedule(($("#event-code").value.trim() || "EVENT").toUpperCase(), rows);
+    msg.innerHTML = `<div class="banner ${skipped.length ? "warn" : "good"}"><strong>Loaded ${n} matches</strong>${skipped.length ? `Skipped ${skipped.length} line${skipped.length > 1 ? "s" : ""} without a match and four teams: ${esc(skipped.slice(0, 3).join(" | "))}${skipped.length > 3 ? " …" : ""}` : "Check the table below against the printed schedule."}</div>`;
+  });
+  $("#sched-qr").addEventListener("click", e => { const b = e.target.closest("[data-sq]"); if (b) { schedIdx += +b.dataset.sq; renderSchedule(); } });
+  $("#sched-clear").addEventListener("click", e => {
+    const b = e.currentTarget;
+    if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Tap again"; setTimeout(() => { delete b.dataset.armed; b.textContent = "Clear"; }, 3000); return; }
+    delete b.dataset.armed; b.textContent = "Clear";
+    schedule = null; store.set("schedule", null); paintForm(); renderChrome();
   });
 
   function renderSeen() {
@@ -458,50 +625,111 @@
     const el = $("#matches");
     if (!c.byMatch.size) { el.innerHTML = `<div class="empty"><strong>No matches yet</strong>Scan a scout's phone on the Scan tab and their matches show up here.</div>`; return; }
     const head = `<tr><th>Team</th><th>Total</th>${COUNTERS.map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.label)}</th>`).join("")}${OTHER.map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.short || f.label)}</th>`).join("")}<th>Scouts</th></tr>`;
-    el.innerHTML = `<div class="matches">${[...c.byMatch.keys()].sort(natural).reverse().map(m => {
-      const es = c.byMatch.get(m).sort((a, b) => b.total - a.total), flags = es.reduce((s, e) => s + e.flags.length, 0);
-      return `<article class="match">
-        <div class="match-h"><h3>Match ${esc(m)}</h3><span>${es.length} robot${es.length > 1 ? "s" : ""} ${flags ? `<span class="pill warn">${flags} to check</span>` : ""}</span></div>
-        <div class="scroll"><table><thead>${head}</thead><tbody>${es.map(e => `
-          <tr><td class="team">${esc(e.team)}${e.flags.length ? ' <span class="pill warn">!</span>' : ""}<small>${esc(c.names[e.team] || "")}</small></td>
+    // With a schedule, also list scheduled matches up to the latest one scouted, so gaps show.
+    const keys = new Set(c.byMatch.keys());
+    if (schedule) {
+      const latest = Math.max(...[...keys].map(Number).filter(n => !isNaN(n)), 0);
+      for (const m of Object.keys(schedule.matches)) if (+m <= latest) keys.add(m);
+    }
+    $("#match-check").setAttribute("aria-pressed", String(tools.matchCheck));
+    const cards = [...keys].sort(natural).reverse().map(m => {
+      const es = (c.byMatch.get(m) || []).sort((a, b) => b.total - a.total), flags = es.reduce((s, e) => s + e.flags.length, 0);
+      const row = schedule && schedule.matches[String(+m)];
+      const spotOf = t => row ? row.findIndex(x => String(x) === String(t)) : -1;
+      const missing = row ? row.map((t, i) => [t, i]).filter(([t]) => !es.some(e => e.team === String(t))) : [];
+      if (tools.matchCheck && !flags && !missing.length) return "";
+      return `<article class="match" id="match-${esc(m)}">
+        <div class="match-h"><h3>Match ${esc(m)}</h3><span>${es.length}${row ? " of 4" : ""} robot${es.length === 1 && !row ? "" : "s"} ${flags ? `<span class="pill warn">${flags} to check</span>` : ""}${missing.length ? ` <span class="pill bad">${missing.length} not scouted</span>` : ""}</span></div>
+        ${es.length ? `<div class="scroll"><table><thead>${head}</thead><tbody>${es.map(e => `
+          <tr><td class="team">${spotOf(e.team) >= 0 ? `<span class="spot-tag ${spotOf(e.team) < 2 ? "red" : "blue"}">${SPOTS[spotOf(e.team)]}</span> ` : ""}${esc(e.team)}${e.flags.length ? ' <span class="pill warn">!</span>' : ""}<small>${esc(c.names[e.team] || "")}</small></td>
             <td class="tot">${fmt(e.total)}</td>
             ${COUNTERS.map(f => `<td>${counterCell(f, e.v[f.key])}</td>`).join("")}
             ${OTHER.map(f => `<td>${f.type === "yesno" ? yn(e.v[f.key]) : f.type === "choice" ? choicePill(f, e.v[f.key]) : f.options.filter(o => e.v[f.key][o.id] >= 0.5).map(o => esc(o.short || o.label)).join(", ") || "–"}</td>`).join("")}
             <td>${e.n}</td></tr>`).join("")}
-        </tbody></table></div>
+        </tbody></table></div>` : ""}
         ${es.filter(e => e.flags.length).map(e => `<p class="flag">Team ${esc(e.team)}: ${e.flags.map(esc).join(" · ")} (${e.reports.map(r => esc(r.scouter)).join(", ")})</p>`).join("")}
+        ${missing.length ? `<p class="missing">Not scouted: ${missing.map(([t, i]) => `${SPOTS[i]} ${esc(t)}${c.names[t] ? ` ${esc(c.names[t])}` : ""}`).join(" · ")}</p>` : ""}
         </article>`;
-    }).join("")}</div>`;
+    }).join("");
+    el.innerHTML = cards ? `<div class="matches">${cards}</div>`
+      : `<div class="empty"><strong>Nothing to check</strong>No disagreements or unscouted robots so far. Tap “Only matches to check” again to see every match.</div>`;
   }
+  $("#match-check").addEventListener("click", () => { tools.matchCheck = !tools.matchCheck; saveTools(); renderLead(); });
+  $("#match-jump").addEventListener("change", e => {
+    const m = String(+e.target.value.trim() || e.target.value.trim()); if (!m) return;
+    if (tools.matchCheck && !document.getElementById("match-" + m)) { tools.matchCheck = false; saveTools(); renderLead(); }
+    const card = document.getElementById("match-" + m);
+    if (!card) { toast(`Match ${m} hasn't been scouted yet.`); return; }
+    document.querySelectorAll(".match.target").forEach(x => x.classList.remove("target"));
+    card.classList.add("target");
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+    e.target.blur();
+  });
 
   // ---------- robots ----------
-  let sortKey = "avgTotal", sortDir = -1, openTeam = null;
+  // Sort and filter choices are per-device conveniences, remembered between visits.
+  const tools = Object.assign({ sortKey: "avgTotal", sortDir: -1, filters: [], find: "", matchCheck: false }, store.get("tools", {}));
+  let { sortKey, sortDir } = tools, openTeam = null;
+  const saveTools = () => { Object.assign(tools, { sortKey, sortDir }); store.set("tools", tools); };
   function robotColumns() {
     const cols = [
-      { id: "team", label: "Team", sort: r => r.team, html: r => `${esc(r.team)}${r.flags ? ' <span class="pill warn" title="Scouts disagreed somewhere">!</span>' : ""}<small>${esc(r.teamName)}</small>`, cls: "team" },
-      { id: "avgTotal", group: "avg", label: "Total", sort: r => r.avgTotal, html: r => fmt(r.avgTotal), cls: "tot" },
-      { id: "best", label: "Best", sort: r => r.best, html: r => fmt(r.best) },
-      { id: "matches", label: "Matches", sort: r => r.matches, html: r => r.matches },
-      ...COUNTERS.map(f => ({ id: f.key, group: f.section.short + " avg", label: f.label, sort: r => r.avg[f.key], html: r => counterCell(f, r.avg[f.key]) })),
+      { id: "team", label: "Team", sortLabel: "Team number", sort: r => r.team, html: r => `${esc(r.team)}${r.flags ? ' <span class="pill warn" title="Scouts disagreed somewhere">!</span>' : ""}<small>${esc(r.teamName)}</small>`, cls: "team" },
+      { id: "avgTotal", group: "avg", label: "Total", sortLabel: "Total pieces (average)", sort: r => r.avgTotal, html: r => fmt(r.avgTotal), cls: "tot" },
+      { id: "best", label: "Best", sortLabel: "Best single match", sort: r => r.best, html: r => fmt(r.best) },
+      { id: "matches", label: "Matches", sortLabel: "Matches scouted", sort: r => r.matches, html: r => r.matches },
+      ...COUNTERS.map(f => ({ id: f.key, group: f.section.short + " avg", label: f.label, sortLabel: `${f.section.short} ${f.label.toLowerCase()} (average)`, sort: r => r.avg[f.key], html: r => counterCell(f, r.avg[f.key]) })),
     ];
     for (const f of OTHER) {
-      if (f.type === "yesno") cols.push({ id: f.key, group: f.section.short, label: f.short || f.label, sort: r => r.rate[f.key], html: r => bar(r.rate[f.key]) });
-      if (f.type === "choice") cols.push({ id: f.key, group: f.section.short, label: f.short || f.label,
+      if (f.type === "yesno") cols.push({ id: f.key, group: f.section.short, label: f.short || f.label, sortLabel: `${f.short || f.label} (how often)`, sort: r => r.rate[f.key], html: r => bar(r.rate[f.key]) });
+      if (f.type === "choice") cols.push({ id: f.key, group: f.section.short, label: f.short || f.label, sortLabel: `${f.short || f.label}: most “${f.options[0].label}”`,
         sort: r => r.counts[f.key][f.options[0].id] / r.matches,
         html: r => f.options.filter(o => r.counts[f.key][o.id]).map(o => `<span class="pill ${o.tone || ""}">${esc(o.short || o.label)} ${r.counts[f.key][o.id]}</span>`).join(" ") || "–" });
-      if (f.type === "checks") cols.push({ id: f.key, group: f.section.short, label: f.short || f.label,
+      if (f.type === "checks") cols.push({ id: f.key, group: f.section.short, label: f.short || f.label, sortLabel: `${f.short || f.label} earned`,
         sort: r => f.options.reduce((s, o) => s + (r.rate[f.key][o.id] || 0), 0),
         html: r => f.options.filter(o => r.rate[f.key][o.id] > 0).map(o => `${esc(o.short || o.label)} ${pct(r.rate[f.key][o.id])}`).join(" · ") || "–" });
     }
     return cols;
   }
-  function renderRobots(c) {
+  // Quick filters, built from config: yes/no questions, and choices with a "good" option.
+  const FILTERS = [
+    ...FIELDS.filter(f => f.type === "yesno").map(f => ({ id: f.key, label: f.short || f.label, test: r => r.rate[f.key] != null && r.rate[f.key] >= 0.5 })),
+    ...FIELDS.filter(f => f.type === "choice" && f.options.some(o => o.tone === "good")).map(f => {
+      const o = f.options.find(o => o.tone === "good");
+      return { id: f.key, label: `${f.short || f.label}: ${o.label}`, test: r => r.counts[f.key][o.id] / r.matches >= 0.5 };
+    }),
+    { id: "twoPlus", label: "Scouted 2+ matches", test: r => r.matches >= 2 },
+  ];
+  tools.filters = tools.filters.filter(id => FILTERS.some(f => f.id === id));
+  function paintRobotTools() {
+    $("#robot-sort").innerHTML = robotColumns().map(col => `<option value="${esc(col.id)}" ${col.id === sortKey ? "selected" : ""}>${esc(col.sortLabel)}</option>`).join("");
+    $("#robot-dir").textContent = sortDir < 0 ? "High → low" : "Low → high";
+    $("#robot-filters").innerHTML = FILTERS.map(f => `<button type="button" class="chip" data-filter="${esc(f.id)}" aria-pressed="${tools.filters.includes(f.id)}">${esc(f.label)}</button>`).join("");
+    if ($("#robot-find").value !== tools.find) $("#robot-find").value = tools.find;
+  }
+  $("#robot-sort").addEventListener("change", e => { sortKey = e.target.value; sortDir = sortKey === "team" ? 1 : -1; saveTools(); renderLead(); });
+  $("#robot-dir").addEventListener("click", () => { sortDir = -sortDir; saveTools(); renderLead(); });
+  $("#robot-filters").addEventListener("click", e => {
+    const b = e.target.closest("[data-filter]"); if (!b) return;
+    const id = b.dataset.filter;
+    tools.filters = tools.filters.includes(id) ? tools.filters.filter(x => x !== id) : [...tools.filters, id];
+    saveTools(); renderLead();
+  });
+  $("#robot-find").addEventListener("input", e => { tools.find = e.target.value; saveTools(); renderRobots(consolidate(), true); });
+
+  function renderRobots(c, keepTools) {
     const el = $("#robots");
+    if (!keepTools) paintRobotTools();
+    $("#robot-tools").hidden = !c.robots.length;
     if (!c.robots.length) { el.innerHTML = `<div class="empty"><strong>No robots yet</strong>Once you've scanned some phones, each team gets a row with its averages, reliability and notes.</div>`; return; }
     const cols = robotColumns(), sc = cols.find(x => x.id === sortKey) || cols[0];
-    const rs = [...c.robots].sort((a, b) => {
+    const q = tools.find.trim().toLowerCase();
+    const active = FILTERS.filter(f => tools.filters.includes(f.id));
+    const shown = c.robots.filter(r => active.every(f => f.test(r)) && (!q || r.team.startsWith(q) || r.teamName.toLowerCase().includes(q)));
+    $("#robot-count").textContent = shown.length === c.robots.length ? `Showing all ${shown.length} teams` : `Showing ${shown.length} of ${c.robots.length} teams`;
+    if (!shown.length) { el.innerHTML = `<div class="empty"><strong>No teams match</strong>Untick a filter or clear the search to see more.</div>`; return; }
+    const rs = [...shown].sort((a, b) => {
       const x = sc.sort(a), y = sc.sort(b);
-      if (sc.id === "team") return natural(x, y) * -sortDir;
+      if (sc.id === "team") return natural(x, y) * sortDir;
       return ((x ?? -1) - (y ?? -1)) * sortDir;
     });
     el.innerHTML = `<div class="scroll"><table>
@@ -539,7 +767,7 @@
       toast("Report deleted."); renderChrome(); return;
     }
     const th = e.target.closest("[data-sort]");
-    if (th) { const k = th.dataset.sort; sortDir = sortKey === k ? -sortDir : k === "team" ? 1 : -1; sortKey = k; renderLead(); return; }
+    if (th) { const k = th.dataset.sort; sortDir = sortKey === k ? -sortDir : k === "team" ? 1 : -1; sortKey = k; saveTools(); renderLead(); return; }
     const row = e.target.closest("tr.row");
     if (row) { openTeam = openTeam === row.dataset.team ? null : row.dataset.team; renderLead(); }
   });
@@ -618,6 +846,7 @@
     if (view !== "lead") return;
     const c = consolidate();
     if (sub === "scan") renderSeen();
+    if (sub === "schedule") renderSchedule();
     if (sub === "matches") renderMatches(c);
     if (sub === "robots") renderRobots(c);
     if (sub === "data") renderData(c);
@@ -633,7 +862,18 @@
     paintDupHint();
   }
   function show(v) {
+    // A locked phone only reaches the Lead area to scan the lead's schedule code.
+    if (v === "lead" && !leadUnlocked && !scanReturn) v = "scout";
+    if (v !== "lead") scanReturn = false;
     view = v;
+    const scanOnly = v === "lead" && !leadUnlocked;
+    document.body.classList.toggle("scan-only", scanOnly);
+    $("#scan-title").textContent = scanOnly ? "Scan the lead's schedule code" : "Scan a scout's phone";
+    $("#scan-hint").innerHTML = scanOnly
+      ? "The lead opens <b>Lead → Schedule</b> and shows the code under “Share with scouts”. Scan every part."
+      : "Ask the scout to open <b>Hand off</b>. Point this camera at their code. Each code only needs one beep.";
+    if (scanOnly && sub !== "scan") showSub("scan");
+    paintLock();
     document.querySelectorAll("nav.tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.view === v)));
     for (const id of ["scout", "handoff", "lead"]) $("#view-" + id).hidden = id !== v;
     if (v !== "lead" || sub !== "scan") stopCamera();
@@ -643,11 +883,62 @@
   function showSub(s) {
     sub = s;
     document.querySelectorAll("nav.subtabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.sub === s)));
-    for (const id of ["scan", "matches", "robots", "data"]) $("#sub-" + id).hidden = id !== s;
+    for (const id of ["scan", "schedule", "matches", "robots", "data"]) $("#sub-" + id).hidden = id !== s;
     if (s !== "scan") stopCamera();
     renderLead();
   }
   document.querySelectorAll("nav.tabs button").forEach(b => b.addEventListener("click", () => show(b.dataset.view)));
+
+  // ---------- lead PIN lock ----------
+  // A convenience lock, not real security: it keeps scouts out of the Lead screens.
+  let leadUnlocked = true;
+  if (C.leadPinHash) { leadUnlocked = false; try { leadUnlocked = localStorage.getItem("bbs:lead") === C.leadPinHash; } catch {} }
+  async function pinHash(pin) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bbs-lead:" + pin));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+  }
+  function paintLock() {
+    $('nav.tabs [data-view="lead"]').hidden = !leadUnlocked;
+    $(".lead-login").hidden = leadUnlocked || !C.leadPinHash;
+    $("#lead-lock").hidden = !C.leadPinHash;
+  }
+  function openPin() {
+    $("#pin-overlay").hidden = false; $("#pin-err").hidden = true;
+    const i = $("#pin-input"); i.value = ""; setTimeout(() => i.focus(), 50);
+  }
+  $("#lead-login").addEventListener("click", openPin);
+  let titleTaps = 0, titleTimer;
+  $("#app-name").addEventListener("click", () => {
+    clearTimeout(titleTimer); titleTimer = setTimeout(() => (titleTaps = 0), 1500);
+    if (++titleTaps >= 5 && !leadUnlocked) { titleTaps = 0; openPin(); }
+  });
+  $("#pin-cancel").addEventListener("click", () => ($("#pin-overlay").hidden = true));
+  $("#pin-form").addEventListener("submit", async e => {
+    e.preventDefault();
+    let h = "";
+    try { h = await pinHash($("#pin-input").value.trim()); } catch {}
+    if (h !== C.leadPinHash) { $("#pin-err").hidden = false; $("#pin-input").select(); return; }
+    leadUnlocked = true;
+    try { localStorage.setItem("bbs:lead", h); } catch {}
+    $("#pin-overlay").hidden = true;
+    show("lead"); toast("Lead mode is on for this phone.");
+  });
+  $("#lead-lock").addEventListener("click", () => {
+    leadUnlocked = false;
+    try { localStorage.removeItem("bbs:lead"); } catch {}
+    show("scout"); toast("Lead screens locked.");
+  });
+  $("#scan-back").addEventListener("click", () => show("scout"));
+  $("#make-pin").addEventListener("click", async () => {
+    const pin = $("#new-pin").value.trim(), out = $("#pin-line");
+    if (pin.length < 4) { out.innerHTML = `<p class="err">Use at least 4 characters.</p>`; return; }
+    const line = `  leadPinHash: "${await pinHash(pin)}",`;
+    out.innerHTML = `<div class="pin-out"><code id="pin-code">${esc(line)}</code><button type="button" class="btn small" id="copy-pin">Copy line</button></div>`;
+    $("#copy-pin").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(line); toast("Copied. Paste it into config.js."); }
+      catch { const r = document.createRange(); r.selectNodeContents($("#pin-code")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+    });
+  });
   document.querySelectorAll("nav.subtabs button").forEach(b => b.addEventListener("click", () => showSub(b.dataset.sub)));
   document.addEventListener("visibilitychange", () => { if (document.hidden) { store.set("draft", form); stopCamera(); } });
 
@@ -669,7 +960,7 @@
   document.title = C.appName;
 
   // test hooks for the README's troubleshooting steps and automated checks
-  window.__scout = { buildCodes, parseCode, importCode, qrSvg, consolidate, FIELDS };
+  window.__scout = { buildCodes, parseCode, importCode, qrSvg, consolidate, FIELDS, scheduleCodes, parseScheduleText, getSchedule: () => schedule };
 
   paintForm();
   show("scout");

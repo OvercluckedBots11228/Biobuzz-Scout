@@ -19,8 +19,10 @@ It's a plain website hosted free on GitHub Pages. Once a phone has opened it and
    - **Android:** open the Chrome menu **⋮**, then **Add to Home screen** or **Install app**.
 3. Open it from the home screen and type your name once.
 
+**Event morning:** once the lead has the schedule, tap **Get schedule from lead** on the Scout tab and point your camera at the lead's code. If it comes in parts, scan every part.
+
 **During the event:**
-1. **Scout** tab: enter the team number and match number, then tap through the match. Use **+** for every piece scored.
+1. **Scout** tab: enter the match number and tap your spot (**Red 1, Red 2, Blue 1, Blue 2**). The team number and name fill in. You can change spots any match. With no schedule, just type the team number. Then tap through the match, using **+** for every piece scored.
 2. Tap **Save report**. The match number moves up by one, ready for the next match.
 3. When the lead comes by, open **Hand off** and show the code. After they hear the beep, tap **Lead scanned it**.
 
@@ -28,6 +30,20 @@ If you miss a hand-off, nothing is lost. Your code keeps every report the lead h
 
 ## For the lead
 
+**Unlocking the Lead screens:** the **Lead** tab is hidden on every phone until you enter the lead PIN. Tap **Lead login** at the bottom of the Scout tab, or tap the app's title 5 times, and enter the PIN. That phone stays unlocked until you tap **Lock** at the top of the Lead screens. Lock it before handing your phone to anyone.
+
+The PIN keeps scouts out of the Lead screens. It isn't strong security, because the app is a public website, but the team's merged data never leaves the lead's phone anyway. To change the PIN, see **Lead → Data → Change the lead PIN**.
+
+**Event morning, loading the match schedule:**
+1. **Lead → Schedule.** Check the event code. It's the end of the event's address on ftc-events.firstinspires.org, for example `USMICOQ`. The default is set in `config.js`.
+2. With any internet (cell data is fine), tap **Download from FTCScout**. If it says the schedule isn't posted yet, wait a few minutes and try again.
+3. No signal? Type it into **No signal? Type or paste it**, one match per line: `match red1 red2 blue1 blue2`.
+4. Check a few matches against the printed schedule, then hold up **Share with scouts** so each scout can scan every part.
+5. If the schedule changes, load it again and have scouts rescan.
+
+Once a schedule is loaded, **Matches** also lists robots nobody scouted, in red.
+
+**After each match:**
 1. Open the **Lead** tab, then **Scan**, and tap **Start camera**. Allow camera access the first time.
 2. Point at each scout's code. A beep plus a green banner means it worked. Scanning the same code twice is harmless.
 3. **Scouts heard from** shows who has handed off and up to which match. Use it to spot who you missed.
@@ -48,7 +64,7 @@ If you miss a hand-off, nothing is lost. Your code keeps every report the lead h
 Every season has a new game, so the questions change. **You only edit one file: `config.js`.** The scout form, QR codes, Matches and Robots screens, and the spreadsheet all build themselves from it.
 
 1. On GitHub, open `config.js` and click the pencil icon to edit.
-2. Change `season` to something new, like `"newgame-2027"`. This starts each phone on fresh, separate data.
+2. Change `season` to something new, like `"newgame-2027"`. This starts each phone on fresh, separate data. Update `event` to the new season's year and your first event's code.
 3. Change `appName`, and the `colors` if you like.
 4. Rewrite the `sections` list to match the new paper sheet. Each field is one line. The types are:
 

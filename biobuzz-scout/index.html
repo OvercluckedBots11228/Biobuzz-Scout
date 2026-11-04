@@ -34,6 +34,7 @@
   <!-- SCOUT: the paper sheet, as a form -->
   <section id="view-scout">
     <form class="narrow" id="form" novalidate></form>
+    <p class="lead-login"><button type="button" class="linklike" id="lead-login">Lead login</button></p>
   </section>
 
   <!-- HAND OFF: QR code of this phone's reports for the lead to scan -->
@@ -43,8 +44,10 @@
 
   <!-- LEAD: scan phones, see merged results, export -->
   <section id="view-lead" hidden>
-    <nav class="subtabs" role="tablist">
+    <div class="lead-bar lead-only"><span>Lead mode is on for this phone</span><button type="button" class="btn small" id="lead-lock">Lock</button></div>
+    <nav class="subtabs lead-only" role="tablist">
       <button role="tab" data-sub="scan" aria-selected="true">Scan</button>
+      <button role="tab" data-sub="schedule" aria-selected="false">Schedule</button>
       <button role="tab" data-sub="matches" aria-selected="false">Matches</button>
       <button role="tab" data-sub="robots" aria-selected="false">Robots</button>
       <button role="tab" data-sub="data" aria-selected="false">Data</button>
@@ -52,8 +55,8 @@
 
     <div id="sub-scan" class="narrow">
       <div class="card">
-        <h2 class="section-h">Scan a scout's phone</h2>
-        <p class="hint">Ask the scout to open <b>Hand off</b>. Point this camera at their code. Each code only needs one beep.</p>
+        <h2 class="section-h" id="scan-title">Scan a scout's phone</h2>
+        <p class="hint" id="scan-hint">Ask the scout to open <b>Hand off</b>. Point this camera at their code. Each code only needs one beep.</p>
         <div class="viewfinder" id="viewfinder">
           <video id="video" playsinline muted></video>
           <div class="frame"></div>
@@ -64,20 +67,70 @@
         </div>
         <div id="scan-result" aria-live="polite"></div>
         <label class="hint">Camera not working? <input type="file" id="scan-photo" accept="image/*"> Take or pick a photo of the code instead.</label>
+        <div class="actions scan-only-show"><button type="button" class="btn" id="scan-back">Back to scouting</button></div>
       </div>
-      <div class="card">
+      <div class="card lead-only">
         <h2 class="section-h">Scouts heard from</h2>
         <div id="seen"></div>
       </div>
     </div>
 
+    <div id="sub-schedule" class="narrow" hidden>
+      <div class="card">
+        <h2 class="section-h">Load the match schedule</h2>
+        <p class="hint">Do this the morning of the event, once the schedule is out. Downloading needs a moment of internet (cell data is fine). After that, everything works offline.</p>
+        <div class="fields">
+          <label class="f full">Event code<input id="event-code" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+        </div>
+        <div class="actions"><button type="button" class="btn primary" id="sched-download">Download from FTCScout</button></div>
+        <div id="sched-msg" aria-live="polite"></div>
+      </div>
+
+      <div class="card" id="sched-share" hidden>
+        <h2 class="section-h">Share with scouts</h2>
+        <p class="hint">Each scout taps <b>Get schedule</b> on the Scout tab, then points their camera here. No internet needed.</p>
+        <div id="sched-qr"></div>
+      </div>
+
+      <div class="card">
+        <h2 class="section-h">No signal? Type or paste it</h2>
+        <p class="hint">One match per line: the match number, then Red 1, Red 2, Blue 1, Blue 2. For example <code>12 5618 5663 5960 6494</code>. You can also paste a schedule copied from a website or spreadsheet.</p>
+        <label class="f">Schedule<textarea id="sched-text" rows="6" spellcheck="false" placeholder="1 5618 5663 5960 6494&#10;2 7792 8027 8513 9087"></textarea></label>
+        <div class="actions"><button type="button" class="btn" id="sched-paste">Use this schedule</button></div>
+        <div id="sched-paste-msg" aria-live="polite"></div>
+      </div>
+
+      <div class="card" id="sched-current" hidden>
+        <div class="qr-nav"><h2 class="section-h" id="sched-title">Schedule</h2><button type="button" class="btn small danger" id="sched-clear">Clear</button></div>
+        <div id="sched-table"></div>
+      </div>
+    </div>
+
     <div id="sub-matches" hidden>
       <div class="toolbar"><div><h2>By match</h2><p>Every robot scanned in each match. When two scouts watched the same robot, their numbers are averaged and big disagreements are flagged.</p></div></div>
+      <div class="tools">
+        <div class="tool-row">
+          <label class="f grow">Go to match<input id="match-jump" inputmode="numeric" autocomplete="off" placeholder="Match number"></label>
+          <button type="button" class="chip" id="match-check" aria-pressed="false">Only matches to check</button>
+        </div>
+      </div>
       <div id="matches"></div>
     </div>
 
     <div id="sub-robots" hidden>
-      <div class="toolbar"><div><h2>By robot</h2><p>Averages across every match each team was scouted in. Tap a column heading to sort. Tap a team for match-by-match detail and notes.</p></div></div>
+      <div class="toolbar"><div><h2>By robot</h2><p>Averages across every match each team was scouted in. Tap a team for match-by-match detail and notes.</p></div></div>
+      <div class="tools" id="robot-tools">
+        <div class="tool-row">
+          <label class="f grow">Sort by<select id="robot-sort"></select></label>
+          <button type="button" class="btn small" id="robot-dir"></button>
+        </div>
+        <div class="tool-row">
+          <label class="f grow">Find a team<input id="robot-find" type="search" inputmode="search" autocomplete="off" placeholder="Number or name"></label>
+        </div>
+        <div class="q"><span>Only show teams that…</span><div class="chips" id="robot-filters"></div>
+          <p class="hint">A team counts if it did it in at least half of its scouted matches.</p></div>
+        <p class="hint" id="robot-count"></p>
+      </div>
       <div id="robots"></div>
     </div>
 
@@ -94,6 +147,15 @@
         <div id="data-msg" aria-live="polite"></div>
       </div>
       <div class="card">
+        <h2 class="section-h">Change the lead PIN</h2>
+        <p class="hint">Type a new PIN to get a line for <code>config.js</code>. Paste it over the <code>leadPinHash</code> line there and upload the file. Every phone then needs the new PIN.</p>
+        <div class="fields">
+          <label class="f full">New PIN<input id="new-pin" type="password" inputmode="numeric" autocomplete="new-password"></label>
+        </div>
+        <div class="actions"><button type="button" class="btn" id="make-pin">Make config line</button></div>
+        <div id="pin-line"></div>
+      </div>
+      <div class="card">
         <h2 class="section-h">Start fresh</h2>
         <p class="hint">Clears the lead's scanned reports from this device. Save a backup first.</p>
         <div class="actions"><button type="button" class="btn danger" id="clear-lead">Clear lead data</button></div>
@@ -101,6 +163,15 @@
     </div>
   </section>
 </main>
+<div class="overlay" id="pin-overlay" hidden>
+  <form class="card pin-card" id="pin-form" novalidate>
+    <h2 class="section-h">Lead login</h2>
+    <p class="hint">Enter the lead PIN to open the Lead screens on this phone. It stays unlocked until you tap Lock.</p>
+    <label class="f">PIN<input class="big" id="pin-input" type="password" inputmode="numeric" autocomplete="off"></label>
+    <p class="err" id="pin-err" hidden>That PIN isn't right. Try again.</p>
+    <div class="actions"><button type="button" class="btn" id="pin-cancel">Cancel</button><button type="submit" class="btn primary">Unlock</button></div>
+  </form>
+</div>
 <div class="toast" id="toast" hidden></div>
 
 <script src="config.js"></script>

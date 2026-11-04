@@ -27,6 +27,16 @@ window.SCOUT_CONFIG = {
   appName: "BioBuzz Scout",
   tagline: "One robot · one match",
 
+  // The event you're scouting. "code" is the last part of the event's address on
+  // ftc-events.firstinspires.org (…/2026/USMICOQ → "USMICOQ"). The lead can also
+  // type a different code on the Schedule screen.
+  event: { season: 2026, code: "USMICOQ", name: "Coloma Qualifier" },
+
+  // Lead PIN, stored scrambled so it can't be read here at a glance. To change it,
+  // unlock the Lead screens, go to Lead → Data → "Change the lead PIN", and paste
+  // the line it gives you over this one. Delete this line to turn the lock off.
+  leadPinHash: "a23115c7b194fb4402aaa6aa146e05d4a0bfdb22d59d412f2af8ae40dd186a75",
+
   // Two counters whose difference is at least this big get flagged when two
   // scouts watched the same robot in the same match.
   flagDifference: 3,
@@ -36,6 +46,7 @@ window.SCOUT_CONFIG = {
   // Format: "team number": "team name"
   teams: {
     // "1234": "Hive Mind",
+    "37927": "2PawR - Wasps", // rookie team at Coloma, missing from the FTCScout Michigan list
   },
 
   // Colors used by counters. Any CSS color works.
