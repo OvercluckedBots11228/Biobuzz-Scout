@@ -291,7 +291,7 @@
     stopMatchTimer(); form.matchStart = null; saveDraft(); mmPhase = null;
     document.body.classList.remove("match-mode"); $("#match-bar").hidden = true;
     F.querySelectorAll(".card").forEach(c => (c.hidden = false)); $("#form-actions").hidden = false;
-    if (!standalone) $("#install-hint").hidden = false;
+    if (installText) $("#install-hint").hidden = false;
   }
   // Back / Next jump the timer to the start of the previous or next period.
   function jumpPhase(dir) {
@@ -1499,19 +1499,21 @@
     const iPad = /ipad/i.test(ua) || (/Macintosh/.test(ua) && touchPoints > 1);
     const iOS = iPad || /iphone|ipod/i.test(ua);
     const android = /android/i.test(ua);
+    if (!iOS && !android) return ""; // laptops: no install needed, it works in a normal browser tab
     const steps = iOS
       ? (/CriOS|FxiOS|EdgiOS/i.test(ua)
         ? "Tap the Share button in the address bar, then “Add to Home Screen”. (Safari works too.)"
         : `In Safari, tap the Share button (the square with an arrow${iPad ? ", top right" : ", bottom of the screen"}), scroll down, tap “Add to Home Screen”, then “Add”.`)
       : android
         ? (/SamsungBrowser/i.test(ua) ? "Tap the menu (☰), then “Add page to”, then “Home screen”." : "Tap the browser menu (⋮), then “Add to Home screen” or “Install app”.")
-        : "On a laptop: in Chrome or Edge, click the install icon at the right end of the address bar. In Safari on a Mac, choose File → Add to Dock. Scouting works best on a phone.";
+        : "";
     const after = iOS
       ? "Then <b>always open it from the home-screen icon</b>. On iPhone and iPad, the icon and Safari keep separate data, so reports saved in one won't show in the other."
       : "Then <b>always open it from the icon</b>. It works with no internet.";
     return `<strong>Add this to your home screen before the event</strong>${esc(steps)} ${after}<button type="button" class="btn small install-btn" id="install-btn" hidden>Install app</button>`;
   }
-  if (!standalone) { const hint = $("#install-hint"); hint.hidden = false; hint.innerHTML = installHint(navigator.userAgent, navigator.maxTouchPoints || 0); }
+  const installText = standalone ? "" : installHint(navigator.userAgent, navigator.maxTouchPoints || 0);
+  if (installText) { const hint = $("#install-hint"); hint.hidden = false; hint.innerHTML = installText; }
   // Chrome on Android (and desktop) can show its own install prompt from a button.
   let installPrompt = null;
   addEventListener("beforeinstallprompt", e => { e.preventDefault(); installPrompt = e; const b = $("#install-btn"); if (b) b.hidden = false; });
