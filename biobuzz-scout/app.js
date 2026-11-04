@@ -1221,6 +1221,7 @@
   }
   $("#xfer-show").addEventListener("click", async () => {
     xferCodes = transferCodes(); xferIdx = 0; xferPaused = false;
+    if (!xferCodes.length) { $("#xfer").innerHTML = `<p class="hint">Nothing to copy yet. This phone has no reports, deletions or pick lists.</p>`; return; }
     clearInterval(xferTimer);
     xferTimer = setInterval(() => { if (!xferPaused) { xferIdx = (xferIdx + 1) % xferCodes.length; paintXfer(); } }, 1500);
     try { wakeLock = await navigator.wakeLock.request("screen"); } catch {}
