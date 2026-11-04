@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BioBuzz Scout</title>
+<meta name="theme-color" content="#fffdf7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#211e16" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Scout">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap gut">
+    <div class="top-row">
+      <div class="brand"><h1 id="app-name">Scout</h1><small id="tagline"></small></div>
+      <span class="status" id="status" role="status"><i></i><span id="status-text">Loading…</span></span>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-view="scout" aria-selected="true">Scout</button>
+      <button role="tab" data-view="handoff" aria-selected="false">Hand off<span class="badge" id="badge-handoff" hidden></span></button>
+      <button role="tab" data-view="lead" aria-selected="false">Lead</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap gut">
+  <!-- SCOUT: the paper sheet, as a form -->
+  <section id="view-scout">
+    <form class="narrow" id="form" novalidate></form>
+  </section>
+
+  <!-- HAND OFF: QR code of this phone's reports for the lead to scan -->
+  <section id="view-handoff" hidden>
+    <div class="narrow" id="handoff"></div>
+  </section>
+
+  <!-- LEAD: scan phones, see merged results, export -->
+  <section id="view-lead" hidden>
+    <nav class="subtabs" role="tablist">
+      <button role="tab" data-sub="scan" aria-selected="true">Scan</button>
+      <button role="tab" data-sub="matches" aria-selected="false">Matches</button>
+      <button role="tab" data-sub="robots" aria-selected="false">Robots</button>
+      <button role="tab" data-sub="data" aria-selected="false">Data</button>
+    </nav>
+
+    <div id="sub-scan" class="narrow">
+      <div class="card">
+        <h2 class="section-h">Scan a scout's phone</h2>
+        <p class="hint">Ask the scout to open <b>Hand off</b>. Point this camera at their code. Each code only needs one beep.</p>
+        <div class="viewfinder" id="viewfinder">
+          <video id="video" playsinline muted></video>
+          <div class="frame"></div>
+          <div class="idle" id="cam-idle">Camera is off</div>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn primary" id="cam-toggle">Start camera</button>
+        </div>
+        <div id="scan-result" aria-live="polite"></div>
+        <label class="hint">Camera not working? <input type="file" id="scan-photo" accept="image/*"> Take or pick a photo of the code instead.</label>
+      </div>
+      <div class="card">
+        <h2 class="section-h">Scouts heard from</h2>
+        <div id="seen"></div>
+      </div>
+    </div>
+
+    <div id="sub-matches" hidden>
+      <div class="toolbar"><div><h2>By match</h2><p>Every robot scanned in each match. When two scouts watched the same robot, their numbers are averaged and big disagreements are flagged.</p></div></div>
+      <div id="matches"></div>
+    </div>
+
+    <div id="sub-robots" hidden>
+      <div class="toolbar"><div><h2>By robot</h2><p>Averages across every match each team was scouted in. Tap a column heading to sort. Tap a team for match-by-match detail and notes.</p></div></div>
+      <div id="robots"></div>
+    </div>
+
+    <div id="sub-data" class="narrow" hidden>
+      <div class="card">
+        <h2 class="section-h">Lead data</h2>
+        <div class="stats" id="data-stats"></div>
+        <p class="hint">Everything the lead has scanned lives only on this device. Save a copy every few matches.</p>
+        <div class="actions">
+          <button type="button" class="btn" id="export-csv">Save spreadsheet (CSV)</button>
+          <button type="button" class="btn" id="export-backup">Save backup</button>
+        </div>
+        <label class="hint">Restore or combine a backup: <input type="file" id="import-backup" accept=".json,application/json"></label>
+        <div id="data-msg" aria-live="polite"></div>
+      </div>
+      <div class="card">
+        <h2 class="section-h">Start fresh</h2>
+        <p class="hint">Clears the lead's scanned reports from this device. Save a backup first.</p>
+        <div class="actions"><button type="button" class="btn danger" id="clear-lead">Clear lead data</button></div>
+      </div>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast" hidden></div>
+
+<script src="config.js"></script>
+<script src="vendor/qrcode-generator.js"></script>
+<script src="vendor/jsQR.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
