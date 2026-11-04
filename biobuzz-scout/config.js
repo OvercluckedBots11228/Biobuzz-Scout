@@ -8,10 +8,15 @@
 //
 //  Field types:
 //    counter  big + / − buttons for things you tally (game pieces scored)
+//             add  miss: true  for a "missed shots" counter: it is left out of
+//             the Total and used to work out accuracy for its section
 //    yesno    Yes / No buttons
 //    choice   pick one option from a list
 //    checks   tick any number of options (e.g. ranking points earned)
 //    text     free-typed notes
+//
+//  Options on choice and checks fields can carry  rp: <number>  — the ranking
+//  points that option is worth. The lead's screens add them up per match.
 //
 //  Rules:
 //    - Every "id" must be unique inside its section and use only letters,
@@ -27,10 +32,14 @@ window.SCOUT_CONFIG = {
   appName: "BioBuzz Scout",
   tagline: "One robot · one match",
 
-  // The event you're scouting. "code" is the last part of the event's address on
-  // ftc-events.firstinspires.org (…/2026/USMICOQ → "USMICOQ"). The lead can also
-  // type a different code on the Schedule screen.
-  event: { season: 2026, code: "USMICOQ", name: "Coloma Qualifier" },
+  // FTC season year and region, used to find events on FTCScout.
+  ftcSeason: 2026,
+  region: "USMI",
+
+  // The event phones start on. The lead can pick any other event on
+  // Lead → Schedule → Find an event. "code" is the end of the event's address on
+  // ftc-events.firstinspires.org (…/2026/USMICOQ → "USMICOQ").
+  event: { code: "USMICOQ", name: "Coloma Qualifier" },
 
   // Lead PIN, stored scrambled so it can't be read here at a glance. To change it,
   // unlock the Lead screens, go to Lead → Data → "Change the lead PIN", and paste
@@ -41,9 +50,9 @@ window.SCOUT_CONFIG = {
   // scouts watched the same robot in the same match.
   flagDifference: 3,
 
-  // Every Michigan FTC team is already in teams.js. Use this only to add a team
-  // from another state or fix a name; anything here wins over teams.js.
-  // Format: "team number": "team name"
+  // Every Michigan FTC team is already in teams.js, and the lead's event download
+  // adds names for every team at the event. Use this only to fix a name; anything
+  // here wins over both. Format: "team number": "team name"
   teams: {
     // "1234": "Hive Mind",
     "37927": "2PawR - Wasps", // rookie team at Coloma, missing from the FTCScout Michigan list
@@ -53,33 +62,36 @@ window.SCOUT_CONFIG = {
   colors: {
     pollen: "#d9a400",
     nectar: "#7b55d6",
+    missed: "#8c8577",
   },
 
   sections: [
     {
       id: "auto",
-      title: "Autonomous",
+      title: "Auto",
       short: "Auto",
-      hint: "HIVE pieces scored before the driver period. Tap + for each piece.",
+      hint: "Autonomous period. Tap + for each piece scored or shot missed (leave at 0 if none).",
       fields: [
         { id: "pollen", type: "counter", label: "Pollen", color: "pollen" },
         { id: "nectar", type: "counter", label: "Nectar", color: "nectar" },
+        { id: "missed", type: "counter", label: "Missed", color: "missed", miss: true },
         { id: "leave", type: "yesno", label: "LEAVE completed?", short: "Leave" },
-        { id: "pick", type: "yesno", label: "Picked POLLEN from FLOWERS?", short: "Auto pick" },
-        { id: "park", type: "yesno", label: "PARKED in LOADING ZONE?", short: "Auto park" },
+        { id: "pick", type: "yesno", label: "Can pick POLLEN from FLOWERS?", short: "Auto pick" },
+        { id: "park", type: "yesno", label: "PARK in LOADING ZONE?", short: "Auto park" },
       ],
     },
     {
       id: "tele",
       title: "Teleop",
       short: "Teleop",
-      hint: "HIVE pieces scored during the driver period.",
+      hint: "Driver-controlled period. Tap + for each piece scored or shot missed.",
       fields: [
         { id: "pollen", type: "counter", label: "Pollen", color: "pollen" },
         { id: "nectar", type: "counter", label: "Nectar", color: "nectar" },
-        { id: "pick", type: "yesno", label: "Picked POLLEN from FLOWERS?", short: "Tele pick" },
+        { id: "missed", type: "counter", label: "Missed", color: "missed", miss: true },
+        { id: "pick", type: "yesno", label: "Can pick POLLEN from FLOWERS?", short: "Tele pick" },
         {
-          id: "score", type: "choice", label: "Scored in FLOWERS?", short: "Flowers",
+          id: "score", type: "choice", label: "Can score in FLOWERS?", short: "Flowers",
           options: [
             { id: "pollen", label: "Pollen" },
             { id: "nectar", label: "Nectar" },
@@ -87,28 +99,29 @@ window.SCOUT_CONFIG = {
             { id: "none", label: "Neither" },
           ],
         },
-        { id: "park", type: "yesno", label: "PARKED in LOADING ZONE?", short: "End park" },
+        { id: "park", type: "yesno", label: "PARK in LOADING ZONE?", short: "End park" },
       ],
     },
     {
       id: "final",
       title: "Final results",
       short: "Final",
+      hint: "Pick one match result and mark every RP earned.",
       fields: [
         {
           id: "result", type: "choice", label: "Alliance match result", short: "Result",
           options: [
-            { id: "win", label: "Win", short: "W", tone: "good" },
-            { id: "tie", label: "Tie", short: "T" },
-            { id: "loss", label: "Loss", short: "L", tone: "bad" },
+            { id: "win", label: "Win (3 RP)", short: "W", tone: "good", rp: 3 },
+            { id: "tie", label: "Tie (1 RP)", short: "T", rp: 1 },
+            { id: "loss", label: "Loss", short: "L", tone: "bad", rp: 0 },
           ],
         },
         {
-          id: "rp", type: "checks", label: "Ranking points earned", short: "RP",
+          id: "rp", type: "checks", label: "Bonus RP earned", short: "Bonus RP",
           options: [
-            { id: "swarm", label: "Swarm" },
-            { id: "p1", label: "Pollinator 1" },
-            { id: "p2", label: "Pollinator 2" },
+            { id: "swarm", label: "Swarm", rp: 1 },
+            { id: "p1", label: "Pollinator 1", rp: 1 },
+            { id: "p2", label: "Pollinator 2", rp: 1 },
           ],
         },
       ],

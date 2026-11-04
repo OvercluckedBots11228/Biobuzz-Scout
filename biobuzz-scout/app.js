@@ -8,9 +8,13 @@
   const FIELDS = [];
   for (const s of C.sections) for (const f of s.fields) FIELDS.push({ ...f, key: s.id + "." + f.id, section: s });
   const COUNTERS = FIELDS.filter(f => f.type === "counter");
+  const SCORED = COUNTERS.filter(f => !f.miss);   // add up to the Total
+  const MISSES = COUNTERS.filter(f => f.miss);    // missed shots: used for accuracy only
+  const ACC_SECTIONS = C.sections.filter(s => MISSES.some(f => f.section === s));
+  const RP_FIELDS = FIELDS.filter(f => f.options && f.options.some(o => typeof o.rp === "number"));
   const byKey = Object.fromEntries(FIELDS.map(f => [f.key, f]));
-  // A fingerprint of the field list. Phones whose config differs refuse each other's codes.
-  const SIG = hash(FIELDS.map(f => f.key + ":" + f.type + (f.options ? "(" + f.options.map(o => o.id).join(",") + ")" : "")).join("|"));
+  // A fingerprint of the report layout. Phones whose config differs refuse each other's codes.
+  const SIG = hash("row2|" + FIELDS.map(f => f.key + ":" + f.type + (f.options ? "(" + f.options.map(o => o.id).join(",") + ")" : "")).join("|"));
   function hash(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); }
   const counterColor = f => (C.colors && C.colors[f.color]) || f.color || "var(--honey)";
 
@@ -26,6 +30,14 @@
   let seen = store.get("seen", {});        // scout name -> { at, matches, count }
   let schedule = store.get("schedule", null); // { event, ver, matches: { "12": [red1, red2, blue1, blue2] }, parts: { n, got } }
   const SPOTS = ["Red 1", "Red 2", "Blue 1", "Blue 2"];
+  // The event this phone is on: picked by the lead, or taken from a scanned schedule.
+  let event = store.get("event", null) || { code: C.event.code, name: C.event.name };
+  let eventTeams = store.get("eventTeams", {}); // { code, names: { "5618": "Control Freaks RED" } }
+  function setEvent(ev) {
+    if (event.code !== ev.code) { eventTeams = {}; store.set("eventTeams", eventTeams); }
+    event = { code: ev.code, name: ev.name || ev.code, start: ev.start || "" };
+    store.set("event", event);
+  }
 
   // ---------- small helpers ----------
   const $ = s => document.querySelector(s);
@@ -48,9 +60,10 @@
   let form = Object.assign(blankForm(), store.get("draft", {}));
   form.v = Object.assign(blankValues(), form.v);
 
-  // Team names: the Michigan list (teams.js), then config overrides, then whatever scouts have typed.
+  // Team names: the Michigan list (teams.js), then the downloaded event list, then config fixes,
+  // then whatever scouts have typed.
   function teamNames() {
-    const names = { ...(window.SCOUT_TEAMS || {}), ...(C.teams || {}) };
+    const names = { ...(window.SCOUT_TEAMS || {}), ...(eventTeams.names || {}), ...((schedule && schedule.names) || {}), ...(C.teams || {}) };
     const all = [...Object.values(lead), ...Object.values(mine)].sort((a, b) => a.at - b.at);
     for (const r of all) if (r.teamName) names[r.team] = r.teamName;
     return names;
@@ -81,7 +94,8 @@
   F.innerHTML = `
     <div class="banner" id="install-hint" hidden></div>
     <div class="card">
-      <div class="q" id="spot-row" hidden><span>Which robot are you watching?</span><div class="seg" role="group" aria-label="Alliance spot">
+      <p class="event-line" id="event-line"></p>
+      <div class="q" id="spot-row"><span>Alliance position</span><div class="seg" role="group" aria-label="Alliance position">
         ${SPOTS.map((s, i) => `<button type="button" class="spot ${i < 2 ? "red" : "blue"}" data-spot="${i}" aria-pressed="false">${s}</button>`).join("")}
       </div></div>
       <div class="fields">
@@ -120,7 +134,7 @@
 
   // With a schedule loaded, the match number + spot decide the team.
   function applySchedule() {
-    const row = schedule && form.spot != null && schedule.matches[String(+form.match.trim())];
+    const row = schedule && schedule.event === event.code && form.spot != null && schedule.matches[String(+form.match.trim())];
     if (!row || !row[form.spot]) return;
     form.team = String(row[form.spot]);
     form.teamName = teamNames()[form.team] || "";
@@ -128,10 +142,11 @@
   }
   function paintSchedLine() {
     const has = !!(schedule && Object.keys(schedule.matches).length);
-    $("#spot-row").hidden = !has;
+    $("#event-line").innerHTML = `Event: <b>${esc(event.name)}</b> <span>${esc(event.code)}</span>`;
     $("#get-schedule").textContent = has ? "Update schedule from lead" : "Get schedule from lead";
     const el = $("#sched-line"), m = form.match.trim();
     if (!has) { el.textContent = "No match schedule on this phone yet. Type the team number, or get the schedule from the lead."; return; }
+    if (schedule.event !== event.code) { el.textContent = `The schedule on this phone is for ${schedule.event}, not ${event.code}. Get the new schedule from the lead.`; return; }
     const row = schedule.matches[String(+m)];
     if (!m) { el.textContent = `Schedule loaded: ${Object.keys(schedule.matches).length} matches. Enter the match number and pick your spot.`; return; }
     if (!row) { el.textContent = `Match ${m} isn't in the schedule. Type the team number.`; return; }
@@ -140,7 +155,7 @@
   }
   function paintDupHint() {
     const h = $("#dup-hint"), t = form.team.trim(), m = form.match.trim();
-    const n = t && m ? Object.values(mine).filter(r => r.team === t && r.match === m).length : 0;
+    const n = t && m ? Object.values(mine).filter(r => r.team === t && r.match === m && r.event === event.code).length : 0;
     h.hidden = !n;
     h.textContent = n ? `You already saved team ${t} in match ${m} on this phone. Saving again adds a second report.` : "";
   }
@@ -174,7 +189,7 @@
       form.v[b.dataset.pick] = form.v[b.dataset.pick] === v ? null : v;
       paintForm();
     } else if (b.dataset.spot) {
-      form.spot = form.spot === +b.dataset.spot ? null : +b.dataset.spot;
+      form.spot = +b.dataset.spot;
       applySchedule(); paintForm();
     } else if (b.id === "get-schedule") {
       scanReturn = true; show("lead"); showSub("scan"); startCamera();
@@ -196,14 +211,15 @@
     e.preventDefault();
     const err = $("#form-err");
     const team = form.team.trim(), match = form.match.trim(), scouter = form.scouter.trim();
-    const missing = [!team && "team number", !match && "match number", !scouter && "your name"].filter(Boolean);
+    const missing = [form.spot == null && "alliance position", !team && "team number", !match && "match number", !scouter && "your name"].filter(Boolean);
     if (missing.length) {
       err.hidden = false; err.textContent = `Add ${missing.join(", ")} before saving.`;
-      document.getElementById(!team ? "f-team" : !match ? "f-match" : "f-scouter").focus();
+      if (form.spot == null) $("#spot-row").scrollIntoView({ block: "center" });
+      else document.getElementById(!team ? "f-team" : !match ? "f-match" : "f-scouter").focus();
       return;
     }
     err.hidden = true;
-    const r = { id: newId(), team, match, scouter, teamName: form.teamName.trim(), at: Date.now(), v: JSON.parse(JSON.stringify(form.v)), sent: false };
+    const r = { id: newId(), team, match, scouter, teamName: form.teamName.trim(), at: Date.now(), spot: form.spot, event: event.code, v: JSON.parse(JSON.stringify(form.v)), sent: false };
     for (const f of FIELDS) if (f.type === "text") r.v[f.key] = (r.v[f.key] || "").trim();
     mine[r.id] = r;
     if (!store.set("mine", mine)) { delete mine[r.id]; return; }
@@ -218,7 +234,7 @@
   // ===================================================================
   //  QR ENCODING
   //  A code holds: "BBS1|<season>|<field fingerprint>|" + JSON rows.
-  //  Each row: [id, team, match, scout, team name, time(sec), ...field values in config order]
+  //  Each row: [id, team, match, scout, team name, time(sec), spot, event, ...field values in config order]
   //  Every code is self-contained, so the lead can scan them in any order.
   // ===================================================================
   const HEADER = `BBS1|${C.season}|${SIG}|`;
@@ -238,12 +254,13 @@
     if (f.type === "checks") return f.options.filter((o, i) => x & (1 << i)).map(o => o.id);
     return typeof x === "string" ? x : "";
   }
-  const toRow = r => [r.id, r.team, r.match, r.scouter, r.teamName || "", Math.round(r.at / 1000), ...FIELDS.map(f => encodeValue(f, r.v[f.key]))];
+  const toRow = r => [r.id, r.team, r.match, r.scouter, r.teamName || "", Math.round(r.at / 1000), r.spot ?? null, r.event || "", ...FIELDS.map(f => encodeValue(f, r.v[f.key]))];
   function fromRow(row) {
-    if (!Array.isArray(row) || row.length !== 6 + FIELDS.length) throw new Error("bad row");
-    const [id, team, match, scouter, teamName, sec] = row;
-    const v = {}; FIELDS.forEach((f, i) => (v[f.key] = decodeValue(f, row[6 + i])));
-    return { id: String(id), team: String(team), match: String(match), scouter: String(scouter), teamName: String(teamName || ""), at: sec * 1000, v };
+    if (!Array.isArray(row) || row.length !== 8 + FIELDS.length) throw new Error("bad row");
+    const [id, team, match, scouter, teamName, sec, spot, ev] = row;
+    const v = {}; FIELDS.forEach((f, i) => (v[f.key] = decodeValue(f, row[8 + i])));
+    return { id: String(id), team: String(team), match: String(match), scouter: String(scouter), teamName: String(teamName || ""), at: sec * 1000,
+      spot: spot == null || !SPOTS[spot] ? null : +spot, event: String(ev || ""), v };
   }
   function buildCodes(reports) {
     const codes = []; let rows = [];
@@ -291,7 +308,7 @@
         </div>
         <div class="qr-box" role="img" aria-label="QR code with ${code.ids.length} reports">${qrSvg(code.text)}</div>
         <p class="hint">${codes.length > 1 ? "Let the lead scan every code. " : ""}Turn your screen brightness up if the lead's camera struggles.</p>
-        <ul class="list">${list.filter(r => code.ids.includes(r.id)).map(r => `<li><span>Match ${esc(r.match)} · Team ${esc(r.team)}</span><span>${r.sent ? "handed off before" : esc(ago(r.at))}</span></li>`).join("")}</ul>
+        <ul class="list">${list.filter(r => code.ids.includes(r.id)).map(r => `<li><span>Match ${esc(r.match)} · ${r.spot != null ? esc(SPOTS[r.spot]) + " · " : ""}Team ${esc(r.team)}</span><span>${r.sent ? "handed off before" : esc(ago(r.at))}</span></li>`).join("")}</ul>
         ${showAll ? "" : `<button type="button" class="btn primary" id="mark-sent">Lead scanned it</button>`}
       </div>` : `<div class="banner good"><strong>All caught up</strong>Every report on this phone has been handed off.</div>`}
       <div class="card">
@@ -412,24 +429,32 @@
   });
 
   // ===================================================================
-  //  MATCH SCHEDULE
-  //  The lead loads it (FTCScout download, or typed/pasted), then shares it
-  //  by QR: "BBSCH1|<season>|<event>|<version>|<part>/<parts>|" + JSON rows
-  //  of [match, red1, red2, blue1, blue2]. Parts can be scanned in any order.
+  //  EVENT + MATCH SCHEDULE
+  //  The lead picks an event (FTCScout list, or a typed code), downloads its
+  //  teams and qualification schedule, then shares it by QR:
+  //  "BBSCH1|<season>|<event>|<version>|<part>/<parts>|" + JSON rows. A row is
+  //  [match, red1, red2, blue1, blue2], ["n", team, name] for a team name the
+  //  built-in list lacks, or ["e", event name]. Parts can be scanned in any order.
   // ===================================================================
-  let scanReturn = false, schedIdx = 0;
+  let scanReturn = false, schedIdx = 0, eventList = null, showPast = false;
+  const FTCSCOUT = "https://api.ftcscout.org";
 
-  function setSchedule(event, rows) {
-    schedule = { event, ver: Date.now().toString(36), matches: rows, parts: null };
+  function setSchedule(code, rows, names) {
+    schedule = { event: code, eventName: event.code === code ? event.name : code, ver: Date.now().toString(36), matches: rows, names: names || {}, parts: null };
     store.set("schedule", schedule);
     schedIdx = 0; applySchedule(); paintForm(); renderChrome();
   }
   function scheduleCodes() {
-    const rows = Object.entries(schedule.matches).sort((a, b) => +a[0] - +b[0]).map(([m, t]) => [+m, ...t]);
+    const builtIn = window.SCOUT_TEAMS || {};
+    const rows = [
+      ["e", schedule.eventName || schedule.event],
+      ...Object.entries(schedule.matches).sort((a, b) => +a[0] - +b[0]).map(([m, t]) => [+m, ...t]),
+      ...Object.entries(schedule.names || {}).filter(([t, n]) => builtIn[t] !== n).map(([t, n]) => ["n", +t, n]),
+    ];
     const chunks = []; let cur = [];
     const head = (k, n) => `BBSCH1|${C.season}|${schedule.event}|${schedule.ver}|${k}/${n}|`;
     for (const r of rows) {
-      if (cur.length && (head(9, 9) + JSON.stringify([...cur, r])).length > MAX_CODE_CHARS) { chunks.push(cur); cur = []; }
+      if (cur.length && (head(99, 99) + JSON.stringify([...cur, r])).length > MAX_CODE_CHARS) { chunks.push(cur); cur = []; }
       cur.push(r);
     }
     if (cur.length) chunks.push(cur);
@@ -441,15 +466,21 @@
     const [k, n] = p[4].split("/").map(Number);
     let rows;
     try { rows = JSON.parse(p.slice(5).join("|")); } catch { beep(false); showResult("bad", "Couldn't read that code", "Try again, holding steady."); return; }
-    if (!schedule || schedule.ver !== p[3]) schedule = { event: p[2], ver: p[3], matches: {}, parts: { n, got: [] } };
+    if (!schedule || schedule.ver !== p[3]) schedule = { event: p[2], eventName: p[2], ver: p[3], matches: {}, names: {}, parts: { n, got: [] } };
     schedule.parts = schedule.parts || { n, got: [] };
-    for (const [m, ...t] of rows) schedule.matches[String(m)] = t;
+    schedule.names = schedule.names || {};
+    for (const r of rows) {
+      if (r[0] === "e") schedule.eventName = String(r[1]);
+      else if (r[0] === "n") schedule.names[String(r[1])] = String(r[2]);
+      else { const [m, ...t] = r; schedule.matches[String(m)] = t; }
+    }
     if (!schedule.parts.got.includes(k)) schedule.parts.got.push(k);
     store.set("schedule", schedule);
+    if (event.code !== schedule.event || event.name !== schedule.eventName) setEvent({ code: schedule.event, name: schedule.eventName });
     beep(true);
     const done = schedule.parts.got.length >= n, count = Object.keys(schedule.matches).length;
     if (done) {
-      showResult("good", `Schedule loaded: ${count} matches`, `Event ${schedule.event}. Pick your spot on the Scout tab and the team fills in.`);
+      showResult("good", `Schedule loaded: ${count} matches`, `${schedule.eventName}. Pick your alliance position on the Scout tab and the team fills in.`);
       applySchedule(); paintForm();
       if (scanReturn) { scanReturn = false; stopCamera(); show("scout"); toast(`Schedule loaded: ${count} matches`); }
     } else {
@@ -474,33 +505,80 @@
     return { rows, skipped };
   }
 
-  async function downloadSchedule() {
-    const code = $("#event-code").value.trim().toUpperCase(), msg = $("#sched-msg"), btn = $("#sched-download");
-    if (!code) { msg.innerHTML = `<div class="banner bad"><strong>Enter the event code</strong>It's the last part of the event's address, like USMICOQ.</div>`; return; }
-    btn.disabled = true; btn.textContent = "Downloading…";
+  // ---------- finding an event ----------
+  const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const prettyDate = d => d ? new Date(d + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+  const TYPE_NAMES = { Qualifier: "Qualifier", LeagueMeet: "League meet", LeagueTournament: "League tournament", Championship: "Championship", Kickoff: "Kickoff", Scrimmage: "Scrimmage", OffSeason: "Off-season", NonAdvancement: "Event" };
+  async function loadEventList() {
+    const box = $("#event-list");
+    box.innerHTML = `<p class="hint">Loading events from FTCScout…</p>`;
     try {
-      const res = await fetch(`https://api.ftcscout.org/rest/v1/events/${C.event.season}/${encodeURIComponent(code)}/matches`, { cache: "no-store" });
-      if (res.status === 404) throw new Error(`FTCScout doesn't know event ${code}. Check the code.`);
-      if (!res.ok) throw new Error("FTCScout didn't answer properly. Try again in a minute.");
+      const res = await fetch(`${FTCSCOUT}/rest/v1/events/search/${C.ftcSeason}?region=${encodeURIComponent(C.region)}`, { cache: "no-store" });
+      if (!res.ok) throw new Error();
+      eventList = (await res.json()).filter(e => !e.remote).sort((a, b) => a.start.localeCompare(b.start) || a.name.localeCompare(b.name));
+      renderEventList();
+    } catch {
+      box.innerHTML = `<div class="banner bad"><strong>Couldn't load the event list</strong>This needs internet. You can still type an event code below.</div>`;
+    }
+  }
+  function renderEventList() {
+    const box = $("#event-list"); if (!eventList) return;
+    const q = $("#event-search").value.trim().toLowerCase(), t = today();
+    const list = eventList.filter(e => (showPast || e.end >= t) && (!q || (e.name + " " + e.city + " " + e.code).toLowerCase().includes(q)));
+    box.innerHTML = list.length ? `<ul class="event-pick">${list.slice(0, 60).map(e => `
+      <li><button type="button" data-ev="${esc(e.code)}" aria-pressed="${e.code === event.code}">
+        <b>${esc(e.name)}</b><span>${esc(prettyDate(e.start))}${e.end !== e.start ? "–" + esc(prettyDate(e.end)) : ""} · ${esc(e.city)} · ${esc(TYPE_NAMES[e.type] || e.type)} · ${esc(e.code)}</span>
+      </button></li>`).join("")}</ul>`
+      : `<p class="hint">No ${showPast ? "" : "upcoming "}events match. ${showPast ? "" : "Tick “Show past events” to look further back."}</p>`;
+  }
+  async function pickEvent(code, name, start) {
+    setEvent({ code, name, start });
+    $("#event-code").value = code;
+    paintForm(); renderChrome();
+    await downloadEvent();
+  }
+
+  // Downloads the event's team names, and its schedule once it's posted.
+  async function downloadEvent() {
+    const code = event.code, msg = $("#sched-msg"), btn = $("#sched-download");
+    btn.disabled = true; btn.textContent = "Downloading…";
+    let teamCount = 0, matchCount = 0, note = "";
+    try {
+      const gq = await fetch(`${FTCSCOUT}/graphql`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: `query($s:Int!,$c:String!){ eventByCode(season:$s, code:$c){ name start teams { teamNumber team { name } } } }`, variables: { s: C.ftcSeason, c: code } }),
+      });
+      const ev = gq.ok ? ((await gq.json()).data || {}).eventByCode : null;
+      if (!ev) throw new Error(`FTCScout doesn't know event ${code} in the ${C.ftcSeason} season. Check the code.`);
+      if (ev.name && ev.name !== event.name) setEvent({ code, name: ev.name, start: ev.start });
+      const names = {};
+      for (const t of ev.teams || []) if (t.team && t.team.name) names[String(t.teamNumber)] = t.team.name.replace(/\s+/g, " ").trim();
+      teamCount = (ev.teams || []).length;
+      eventTeams = { code, names, numbers: (ev.teams || []).map(t => t.teamNumber) };
+      store.set("eventTeams", eventTeams);
+
+      const res = await fetch(`${FTCSCOUT}/rest/v1/events/${C.ftcSeason}/${encodeURIComponent(code)}/matches`, { cache: "no-store" });
       const rows = {};
-      for (const m of await res.json()) {
+      if (res.ok) for (const m of await res.json()) {
         if (m.tournamentLevel !== "Quals") continue;
         const at = (a, s) => ((m.teams || []).find(x => x.alliance === a && x.station === s) || {}).teamNumber;
         const t = [at("Red", "One"), at("Red", "Two"), at("Blue", "One"), at("Blue", "Two")];
         if (t.every(Boolean)) rows[String(m.id)] = t;
       }
-      const n = Object.keys(rows).length;
-      if (!n) throw new Error(`The schedule for ${code} isn't posted on FTCScout yet. It usually appears shortly after the event publishes it. Try again in a few minutes, or type it in below.`);
-      setSchedule(code, rows);
-      msg.innerHTML = `<div class="banner good"><strong>Downloaded ${n} qualification matches</strong>Check a few against the printed schedule, then share it with scouts below.</div>`;
+      matchCount = Object.keys(rows).length;
+      if (matchCount) setSchedule(code, rows, names);
+      else note = "The match schedule isn't posted on FTCScout yet. It usually appears the morning of the event, shortly after it's published. Tap Download again then, or type it in below.";
+      msg.innerHTML = `<div class="banner ${matchCount ? "good" : "warn"}"><strong>${esc(event.name)}: ${teamCount} teams${matchCount ? `, ${matchCount} qualification matches` : ""}</strong>${matchCount ? "Check a few matches against the printed schedule, then share it with scouts below." : esc(note)}</div>`;
     } catch (e) {
       const offline = e instanceof TypeError;
-      msg.innerHTML = `<div class="banner bad"><strong>Couldn't download the schedule</strong>${esc(offline ? "No internet connection right now. Find a signal and try again, or type it in below." : e.message)}</div>`;
-    } finally { btn.disabled = false; btn.textContent = "Download from FTCScout"; }
+      msg.innerHTML = `<div class="banner bad"><strong>Couldn't download from FTCScout</strong>${esc(offline ? "No internet connection right now. Find a signal and try again, or type the schedule in below." : e.message)}</div>`;
+    } finally { btn.disabled = false; btn.textContent = "Download teams + schedule"; paintForm(); renderChrome(); }
   }
 
   function renderSchedule() {
-    const has = !!(schedule && Object.keys(schedule.matches).length);
+    $("#event-now").innerHTML = `<b>${esc(event.name)}</b><span>${esc(event.code)}${event.start ? " · " + esc(prettyDate(event.start)) : ""}${eventTeams.code === event.code && eventTeams.numbers ? ` · ${eventTeams.numbers.length} teams downloaded` : ""}</span>`;
+    if ($("#event-code").value.trim().toUpperCase() !== event.code && document.activeElement !== $("#event-code")) $("#event-code").value = event.code;
+    const has = !!(schedule && schedule.event === event.code && Object.keys(schedule.matches).length);
     $("#sched-share").hidden = !has; $("#sched-current").hidden = !has;
     if (!has) return;
     const codes = scheduleCodes();
@@ -516,19 +594,33 @@
       ${codes.length > 1 ? `<p class="hint">Scouts need every part. Tap Next after each beep.</p>` : ""}`;
     const names = teamNames();
     const ms = Object.keys(schedule.matches).sort((a, b) => +a - +b);
-    $("#sched-title").textContent = `${schedule.event} · ${ms.length} matches`;
+    $("#sched-title").textContent = `${ms.length} matches`;
     $("#sched-table").innerHTML = `${partial ? `<p class="hint warn">Only part of the schedule has been scanned. Scan the remaining parts from the lead.</p>` : ""}
       <div class="scroll"><table class="mini"><thead><tr><th>Match</th>${SPOTS.map((s, i) => `<th class="${i < 2 ? "red-t" : "blue-t"}">${s}</th>`).join("")}</tr></thead>
       <tbody>${ms.map(m => `<tr><td>${esc(m)}</td>${schedule.matches[m].map(t => `<td title="${esc(names[t] || "")}">${esc(t)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
   }
-  $("#event-code").value = (schedule && schedule.event) || (C.event && C.event.code) || "";
-  $("#sched-download").addEventListener("click", downloadSchedule);
+  $("#event-code").value = event.code;
+  $("#find-event").addEventListener("click", () => { $("#event-finder").hidden = false; $("#find-event").hidden = true; loadEventList(); });
+  $("#event-search").addEventListener("input", renderEventList);
+  $("#show-past").addEventListener("change", e => { showPast = e.target.checked; renderEventList(); });
+  $("#event-list").addEventListener("click", e => {
+    const b = e.target.closest("[data-ev]"); if (!b) return;
+    const ev = eventList.find(x => x.code === b.dataset.ev);
+    $("#event-finder").hidden = true; $("#find-event").hidden = false;
+    pickEvent(ev.code, ev.name, ev.start);
+  });
+  $("#use-code").addEventListener("click", () => {
+    const code = $("#event-code").value.trim().toUpperCase();
+    if (!/^[A-Z0-9]{3,16}$/.test(code)) { $("#sched-msg").innerHTML = `<div class="banner bad"><strong>Check the event code</strong>It's the end of the event's address on ftc-events.firstinspires.org, like USMICOQ.</div>`; return; }
+    pickEvent(code, code === event.code ? event.name : code);
+  });
+  $("#sched-download").addEventListener("click", downloadEvent);
   $("#sched-paste").addEventListener("click", () => {
     const { rows, skipped } = parseScheduleText($("#sched-text").value);
     const n = Object.keys(rows).length, msg = $("#sched-paste-msg");
     if (!n) { msg.innerHTML = `<div class="banner bad"><strong>No matches found</strong>Each line needs a match number followed by four team numbers.</div>`; return; }
-    setSchedule(($("#event-code").value.trim() || "EVENT").toUpperCase(), rows);
-    msg.innerHTML = `<div class="banner ${skipped.length ? "warn" : "good"}"><strong>Loaded ${n} matches</strong>${skipped.length ? `Skipped ${skipped.length} line${skipped.length > 1 ? "s" : ""} without a match and four teams: ${esc(skipped.slice(0, 3).join(" | "))}${skipped.length > 3 ? " …" : ""}` : "Check the table below against the printed schedule."}</div>`;
+    setSchedule(event.code, rows, eventTeams.code === event.code ? eventTeams.names : {});
+    msg.innerHTML = `<div class="banner ${skipped.length ? "warn" : "good"}"><strong>Loaded ${n} matches for ${esc(event.name)}</strong>${skipped.length ? `Skipped ${skipped.length} line${skipped.length > 1 ? "s" : ""} without a match and four teams: ${esc(skipped.slice(0, 3).join(" | "))}${skipped.length > 3 ? " …" : ""}` : "Check the table below against the printed schedule."}</div>`;
   });
   $("#sched-qr").addEventListener("click", e => { const b = e.target.closest("[data-sq]"); if (b) { schedIdx += +b.dataset.sq; renderSchedule(); } });
   $("#sched-clear").addEventListener("click", e => {
@@ -548,13 +640,15 @@
   // ===================================================================
   //  LEAD: CONSOLIDATION
   // ===================================================================
-  function leadReports() {
+  function allLeadReports() {
     const out = {};
     for (const r of Object.values(mine)) out[r.id] = r;  // a lead who also scouts counts their own reports
     for (const r of Object.values(lead)) out[r.id] = r;
     for (const id of Object.keys(removed)) delete out[id];
     return Object.values(out);
   }
+  // The lead's screens show the current event unless "All events" is picked.
+  const leadReports = () => allLeadReports().filter(r => tools.allEvents || (r.event || "") === event.code);
   function vote(vals) {
     vals = vals.filter(v => v != null);
     if (!vals.length) return { v: null, disagree: false };
@@ -562,9 +656,22 @@
     const s = [...c.entries()].sort((a, b) => b[1] - a[1]);
     return { v: s.length > 1 && s[0][1] === s[1][1] ? "split" : s[0][0], disagree: c.size > 1 };
   }
-  // One merged entry per team per match.
+  // Ranking points one merged entry earned, from options in config.js that carry "rp".
+  function entryRp(e) {
+    let rp = 0, known = false;
+    for (const f of RP_FIELDS) {
+      if (f.type === "choice") { const o = f.options.find(o => o.id === e.v[f.key]); if (o) { known = true; rp += o.rp || 0; } }
+      if (f.type === "checks") { known = true; for (const o of f.options) if ((e.v[f.key][o.id] || 0) >= 0.5) rp += o.rp || 0; }
+    }
+    return known ? rp : null;
+  }
+  // One merged entry per team per match (per event).
   function mergeEntry(reps) {
-    const e = { team: reps[0].team, match: reps[0].match, n: reps.length, reports: reps, flags: [], v: {} };
+    const e = { team: reps[0].team, match: reps[0].match, event: reps[0].event || "", n: reps.length, reports: reps, flags: [], v: {} };
+    e.matchKey = tools.allEvents ? `${e.event || "?"} · ${e.match}` : e.match;
+    const spot = vote(reps.map(r => r.spot));
+    e.spot = typeof spot.v === "number" ? spot.v : null;
+    if (spot.disagree && reps.length > 1) e.flags.push("Alliance position disagrees");
     for (const f of FIELDS) {
       const vals = reps.map(r => r.v[f.key]);
       if (f.type === "counter") {
@@ -581,21 +688,30 @@
         if (mixed && reps.length > 1) e.flags.push(`${f.short || f.label} disagrees`);
       }
     }
-    e.total = COUNTERS.reduce((s, f) => s + e.v[f.key], 0);
+    e.total = SCORED.reduce((s, f) => s + e.v[f.key], 0);
+    e.missed = MISSES.reduce((s, f) => s + e.v[f.key], 0);
+    e.rp = entryRp(e);
     return e;
+  }
+  // Accuracy = scored ÷ (scored + missed), over the given entries, for one section or all.
+  function accuracy(es, section) {
+    const inS = f => !section || f.section === section;
+    const s = es.reduce((t, e) => t + SCORED.filter(inS).reduce((a, f) => a + e.v[f.key], 0), 0);
+    const m = es.reduce((t, e) => t + MISSES.filter(inS).reduce((a, f) => a + e.v[f.key], 0), 0);
+    return s + m ? s / (s + m) : null;
   }
   function consolidate() {
     const reps = leadReports(), names = teamNames(), groups = new Map();
-    for (const r of reps) { const k = r.team + "|" + r.match; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); }
+    for (const r of reps) { const k = `${r.event || ""}|${r.team}|${r.match}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); }
     const entries = [...groups.values()].map(mergeEntry);
     const byMatch = new Map(), byTeam = new Map();
     for (const e of entries) {
-      if (!byMatch.has(e.match)) byMatch.set(e.match, []); byMatch.get(e.match).push(e);
+      if (!byMatch.has(e.matchKey)) byMatch.set(e.matchKey, []); byMatch.get(e.matchKey).push(e);
       if (!byTeam.has(e.team)) byTeam.set(e.team, []); byTeam.get(e.team).push(e);
     }
     const robots = [...byTeam.entries()].map(([team, es]) => {
-      es.sort((a, b) => natural(a.match, b.match));
-      const r = { team, teamName: names[team] || "", entries: es, matches: es.length, avg: {}, rate: {}, counts: {}, flags: es.reduce((s, e) => s + e.flags.length, 0) };
+      es.sort((a, b) => natural(a.matchKey, b.matchKey));
+      const r = { team, teamName: names[team] || "", entries: es, matches: es.length, avg: {}, rate: {}, counts: {}, acc: {}, flags: es.reduce((s, e) => s + e.flags.length, 0) };
       for (const f of FIELDS) {
         if (f.type === "counter") r.avg[f.key] = mean(es.map(e => e.v[f.key]));
         if (f.type === "yesno") { const b = es.map(e => e.v[f.key]).filter(x => x === true || x === false); r.rate[f.key] = b.length ? b.filter(Boolean).length / b.length : null; }
@@ -603,6 +719,9 @@
         if (f.type === "checks") { r.rate[f.key] = {}; for (const o of f.options) r.rate[f.key][o.id] = mean(es.map(e => e.v[f.key][o.id])); }
       }
       r.avgTotal = mean(es.map(e => e.total)); r.best = Math.max(...es.map(e => e.total));
+      for (const s of ACC_SECTIONS) r.acc[s.id] = accuracy(es, s);
+      r.accAll = accuracy(es);
+      const rps = es.map(e => e.rp).filter(x => x != null); r.avgRp = rps.length ? mean(rps) : null;
       return r;
     });
     return { names, byMatch, robots, count: reps.length };
@@ -624,25 +743,27 @@
   function renderMatches(c) {
     const el = $("#matches");
     if (!c.byMatch.size) { el.innerHTML = `<div class="empty"><strong>No matches yet</strong>Scan a scout's phone on the Scan tab and their matches show up here.</div>`; return; }
-    const head = `<tr><th>Team</th><th>Total</th>${COUNTERS.map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.label)}</th>`).join("")}${OTHER.map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.short || f.label)}</th>`).join("")}<th>Scouts</th></tr>`;
+    const head = `<tr><th>Team</th><th>Total</th>${RP_FIELDS.length ? "<th>RP</th>" : ""}${COUNTERS.map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.label)}</th>`).join("")}${OTHER.map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.short || f.label)}</th>`).join("")}<th>Scouts</th></tr>`;
     // With a schedule, also list scheduled matches up to the latest one scouted, so gaps show.
     const keys = new Set(c.byMatch.keys());
-    if (schedule) {
+    const sched = !tools.allEvents && schedule && schedule.event === event.code ? schedule : null;
+    if (sched) {
       const latest = Math.max(...[...keys].map(Number).filter(n => !isNaN(n)), 0);
-      for (const m of Object.keys(schedule.matches)) if (+m <= latest) keys.add(m);
+      for (const m of Object.keys(sched.matches)) if (+m <= latest) keys.add(m);
     }
     $("#match-check").setAttribute("aria-pressed", String(tools.matchCheck));
     const cards = [...keys].sort(natural).reverse().map(m => {
       const es = (c.byMatch.get(m) || []).sort((a, b) => b.total - a.total), flags = es.reduce((s, e) => s + e.flags.length, 0);
-      const row = schedule && schedule.matches[String(+m)];
-      const spotOf = t => row ? row.findIndex(x => String(x) === String(t)) : -1;
+      const row = sched && sched.matches[String(+m)];
+      const spotOf = e => { const i = row ? row.findIndex(x => String(x) === String(e.team)) : -1; return i >= 0 ? i : e.spot ?? -1; };
       const missing = row ? row.map((t, i) => [t, i]).filter(([t]) => !es.some(e => e.team === String(t))) : [];
       if (tools.matchCheck && !flags && !missing.length) return "";
       return `<article class="match" id="match-${esc(m)}">
         <div class="match-h"><h3>Match ${esc(m)}</h3><span>${es.length}${row ? " of 4" : ""} robot${es.length === 1 && !row ? "" : "s"} ${flags ? `<span class="pill warn">${flags} to check</span>` : ""}${missing.length ? ` <span class="pill bad">${missing.length} not scouted</span>` : ""}</span></div>
         ${es.length ? `<div class="scroll"><table><thead>${head}</thead><tbody>${es.map(e => `
-          <tr><td class="team">${spotOf(e.team) >= 0 ? `<span class="spot-tag ${spotOf(e.team) < 2 ? "red" : "blue"}">${SPOTS[spotOf(e.team)]}</span> ` : ""}${esc(e.team)}${e.flags.length ? ' <span class="pill warn">!</span>' : ""}<small>${esc(c.names[e.team] || "")}</small></td>
+          <tr><td class="team">${spotOf(e) >= 0 ? `<span class="spot-tag ${spotOf(e) < 2 ? "red" : "blue"}">${SPOTS[spotOf(e)]}</span> ` : ""}${esc(e.team)}${e.flags.length ? ' <span class="pill warn">!</span>' : ""}<small>${esc(c.names[e.team] || "")}</small></td>
             <td class="tot">${fmt(e.total)}</td>
+            ${RP_FIELDS.length ? `<td>${fmt(e.rp)}</td>` : ""}
             ${COUNTERS.map(f => `<td>${counterCell(f, e.v[f.key])}</td>`).join("")}
             ${OTHER.map(f => `<td>${f.type === "yesno" ? yn(e.v[f.key]) : f.type === "choice" ? choicePill(f, e.v[f.key]) : f.options.filter(o => e.v[f.key][o.id] >= 0.5).map(o => esc(o.short || o.label)).join(", ") || "–"}</td>`).join("")}
             <td>${e.n}</td></tr>`).join("")}
@@ -668,7 +789,7 @@
 
   // ---------- robots ----------
   // Sort and filter choices are per-device conveniences, remembered between visits.
-  const tools = Object.assign({ sortKey: "avgTotal", sortDir: -1, filters: [], find: "", matchCheck: false }, store.get("tools", {}));
+  const tools = Object.assign({ sortKey: "avgTotal", sortDir: -1, filters: [], find: "", matchCheck: false, allEvents: false }, store.get("tools", {}));
   let { sortKey, sortDir } = tools, openTeam = null;
   const saveTools = () => { Object.assign(tools, { sortKey, sortDir }); store.set("tools", tools); };
   function robotColumns() {
@@ -677,6 +798,9 @@
       { id: "avgTotal", group: "avg", label: "Total", sortLabel: "Total pieces (average)", sort: r => r.avgTotal, html: r => fmt(r.avgTotal), cls: "tot" },
       { id: "best", label: "Best", sortLabel: "Best single match", sort: r => r.best, html: r => fmt(r.best) },
       { id: "matches", label: "Matches", sortLabel: "Matches scouted", sort: r => r.matches, html: r => r.matches },
+      ...(RP_FIELDS.length ? [{ id: "avgRp", group: "avg", label: "RP", sortLabel: "Ranking points (average)", sort: r => r.avgRp, html: r => fmt(r.avgRp) }] : []),
+      ...(MISSES.length ? [{ id: "accAll", label: "Accuracy", sortLabel: "Accuracy (all shots)", sort: r => r.accAll, html: r => bar(r.accAll) }] : []),
+      ...ACC_SECTIONS.map(s => ({ id: "acc." + s.id, group: s.short, label: "Accuracy", sortLabel: `${s.short} accuracy`, sort: r => r.acc[s.id], html: r => bar(r.acc[s.id]) })),
       ...COUNTERS.map(f => ({ id: f.key, group: f.section.short + " avg", label: f.label, sortLabel: `${f.section.short} ${f.label.toLowerCase()} (average)`, sort: r => r.avg[f.key], html: r => counterCell(f, r.avg[f.key]) })),
     ];
     for (const f of OTHER) {
@@ -695,7 +819,7 @@
     ...FIELDS.filter(f => f.type === "yesno").map(f => ({ id: f.key, label: f.short || f.label, test: r => r.rate[f.key] != null && r.rate[f.key] >= 0.5 })),
     ...FIELDS.filter(f => f.type === "choice" && f.options.some(o => o.tone === "good")).map(f => {
       const o = f.options.find(o => o.tone === "good");
-      return { id: f.key, label: `${f.short || f.label}: ${o.label}`, test: r => r.counts[f.key][o.id] / r.matches >= 0.5 };
+      return { id: f.key, label: `${f.short || f.label}: ${o.label.replace(/\s*\(.*\)$/, "")}`, test: r => r.counts[f.key][o.id] / r.matches >= 0.5 };
     }),
     { id: "twoPlus", label: "Scouted 2+ matches", test: r => r.matches >= 2 },
   ];
@@ -742,14 +866,15 @@
   }
   function detailRow(r, span) {
     const texts = FIELDS.filter(f => f.type === "text");
-    const notes = r.entries.flatMap(e => e.reports.flatMap(x => texts.filter(f => x.v[f.key]).map(f => ({ m: e.match, s: x.scouter, t: x.v[f.key] }))));
+    const notes = r.entries.flatMap(e => e.reports.flatMap(x => texts.filter(f => x.v[f.key]).map(f => ({ m: e.matchKey, s: x.scouter, t: x.v[f.key] }))));
     return `<tr class="detail"><td colspan="${span}"><div class="detail-grid">
       <div><h3>Every report</h3><div class="scroll"><table class="mini">
-        <thead><tr><th>Match</th>${COUNTERS.map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.label)}</th>`).join("")}<th>Total</th>${OTHER.filter(f => f.type !== "checks").map(f => `<th>${esc(f.short || f.label)}</th>`).join("")}<th>Scout</th><th></th></tr></thead>
+        <thead><tr><th>Match</th><th>Position</th>${COUNTERS.map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.label)}</th>`).join("")}<th>Total</th>${OTHER.filter(f => f.type !== "checks").map(f => `<th>${esc(f.short || f.label)}</th>`).join("")}<th>Scout</th><th></th></tr></thead>
         <tbody>${r.entries.flatMap(e => e.reports.map((x, i) => `<tr>
-          <td>${i === 0 ? esc(e.match) : ""}</td>
+          <td>${i === 0 ? esc(e.matchKey) : ""}</td>
+          <td>${x.spot != null ? `<span class="spot-tag ${x.spot < 2 ? "red" : "blue"}">${SPOTS[x.spot]}</span>` : "–"}</td>
           ${COUNTERS.map(f => `<td>${counterCell(f, x.v[f.key])}</td>`).join("")}
-          <td>${COUNTERS.reduce((s, f) => s + (+x.v[f.key] || 0), 0)}</td>
+          <td>${SCORED.reduce((s, f) => s + (+x.v[f.key] || 0), 0)}</td>
           ${OTHER.filter(f => f.type !== "checks").map(f => `<td>${f.type === "yesno" ? yn(x.v[f.key]) : choicePill(f, x.v[f.key])}</td>`).join("")}
           <td>${esc(x.scouter)}</td>
           <td><button class="btn small danger" data-del="${esc(x.id)}" type="button">Delete</button></td>
@@ -799,10 +924,10 @@
   const stamp = () => new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
   $("#export-csv").addEventListener("click", () => {
     const cell = v => { if (v === true) v = "Yes"; else if (v === false) v = "No"; else if (v == null) v = ""; else if (Array.isArray(v)) v = v.join(" + "); v = String(v); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
-    const head = ["Match", "Team", "Team name", "Scout", ...FIELDS.map(f => `${f.section.title}: ${f.short || f.label}`), "Saved at"];
+    const head = ["Event", "Match", "Alliance position", "Team", "Team name", "Scout", ...FIELDS.map(f => `${f.section.title}: ${f.short || f.label}`), "Saved at"];
     const names = teamNames();
-    const rows = leadReports().sort((a, b) => natural(a.match, b.match) || natural(a.team, b.team)).map(r =>
-      [r.match, r.team, r.teamName || names[r.team] || "", r.scouter, ...FIELDS.map(f => {
+    const rows = allLeadReports().sort((a, b) => natural(a.event || "", b.event || "") || natural(a.match, b.match) || natural(a.team, b.team)).map(r =>
+      [r.event || "", r.match, r.spot != null ? SPOTS[r.spot] : "", r.team, r.teamName || names[r.team] || "", r.scouter, ...FIELDS.map(f => {
         const v = r.v[f.key];
         if (f.type === "choice") { const o = f.options.find(o => o.id === v); return o ? o.label : ""; }
         if (f.type === "checks") return (v || []).map(id => (f.options.find(o => o.id === id) || {}).label).join(" + ");
@@ -844,6 +969,9 @@
   let view = "scout", sub = "scan";
   function renderLead() {
     if (view !== "lead") return;
+    $("#scope-event").textContent = event.name;
+    $("#scope-event").setAttribute("aria-pressed", String(!tools.allEvents));
+    $("#scope-all").setAttribute("aria-pressed", String(!!tools.allEvents));
     const c = consolidate();
     if (sub === "scan") renderSeen();
     if (sub === "schedule") renderSchedule();
@@ -929,6 +1057,8 @@
     show("scout"); toast("Lead screens locked.");
   });
   $("#scan-back").addEventListener("click", () => show("scout"));
+  $("#scope-event").addEventListener("click", () => { tools.allEvents = false; saveTools(); renderLead(); });
+  $("#scope-all").addEventListener("click", () => { tools.allEvents = true; saveTools(); renderLead(); });
   $("#make-pin").addEventListener("click", async () => {
     const pin = $("#new-pin").value.trim(), out = $("#pin-line");
     if (pin.length < 4) { out.innerHTML = `<p class="err">Use at least 4 characters.</p>`; return; }
@@ -960,7 +1090,7 @@
   document.title = C.appName;
 
   // test hooks for the README's troubleshooting steps and automated checks
-  window.__scout = { buildCodes, parseCode, importCode, qrSvg, consolidate, FIELDS, scheduleCodes, parseScheduleText, getSchedule: () => schedule };
+  window.__scout = { buildCodes, parseCode, importCode, qrSvg, consolidate, FIELDS, scheduleCodes, parseScheduleText, getSchedule: () => schedule, getEvent: () => event, pickEvent, setEvent };
 
   paintForm();
   show("scout");

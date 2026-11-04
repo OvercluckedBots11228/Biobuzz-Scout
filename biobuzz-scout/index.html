@@ -44,7 +44,13 @@
 
   <!-- LEAD: scan phones, see merged results, export -->
   <section id="view-lead" hidden>
-    <div class="lead-bar lead-only"><span>Lead mode is on for this phone</span><button type="button" class="btn small" id="lead-lock">Lock</button></div>
+    <div class="lead-bar lead-only">
+      <div class="chips" role="group" aria-label="Which event's results">
+        <button type="button" class="chip" id="scope-event" aria-pressed="true">This event</button>
+        <button type="button" class="chip" id="scope-all" aria-pressed="false">All events</button>
+      </div>
+      <button type="button" class="btn small" id="lead-lock">Lock</button>
+    </div>
     <nav class="subtabs lead-only" role="tablist">
       <button role="tab" data-sub="scan" aria-selected="true">Scan</button>
       <button role="tab" data-sub="schedule" aria-selected="false">Schedule</button>
@@ -77,12 +83,29 @@
 
     <div id="sub-schedule" class="narrow" hidden>
       <div class="card">
-        <h2 class="section-h">Load the match schedule</h2>
-        <p class="hint">Do this the morning of the event, once the schedule is out. Downloading needs a moment of internet (cell data is fine). After that, everything works offline.</p>
-        <div class="fields">
-          <label class="f full">Event code<input id="event-code" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+        <h2 class="section-h">Event</h2>
+        <p class="event-now" id="event-now"></p>
+        <div class="actions"><button type="button" class="btn" id="find-event">Find an event</button></div>
+        <div id="event-finder" hidden>
+          <div class="tools">
+            <label class="f">Search events<input id="event-search" type="search" autocomplete="off" placeholder="Name, city or code"></label>
+            <label class="switch"><input type="checkbox" id="show-past"> Show past events</label>
+          </div>
+          <div id="event-list"></div>
         </div>
-        <div class="actions"><button type="button" class="btn primary" id="sched-download">Download from FTCScout</button></div>
+        <details class="by-code">
+          <summary>Type an event code instead</summary>
+          <div class="tool-row">
+            <label class="f grow">Event code<input id="event-code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="USMICOQ"></label>
+            <button type="button" class="btn small" id="use-code">Use code</button>
+          </div>
+        </details>
+      </div>
+
+      <div class="card">
+        <h2 class="section-h">Teams and match schedule</h2>
+        <p class="hint">Download the event's team list any time before the event. The match schedule appears the morning of; download again then. This needs a moment of internet (cell data is fine). After that, everything works offline.</p>
+        <div class="actions"><button type="button" class="btn primary" id="sched-download">Download teams + schedule</button></div>
         <div id="sched-msg" aria-live="polite"></div>
       </div>
 

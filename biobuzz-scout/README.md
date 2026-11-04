@@ -22,7 +22,7 @@ It's a plain website hosted free on GitHub Pages. Once a phone has opened it and
 **Event morning:** once the lead has the schedule, tap **Get schedule from lead** on the Scout tab and point your camera at the lead's code. If it comes in parts, scan every part.
 
 **During the event:**
-1. **Scout** tab: enter the match number and tap your spot (**Red 1, Red 2, Blue 1, Blue 2**). The team number and name fill in. You can change spots any match. With no schedule, just type the team number. Then tap through the match, using **+** for every piece scored.
+1. **Scout** tab: tap your **alliance position** (**Red 1, Red 2, Blue 1, Blue 2**; required) and enter the match number. The team number and name fill in. You can change spots any match. With no schedule, just type the team number. Then tap through the match, using **+** for every piece scored and every missed shot.
 2. Tap **Save report**. The match number moves up by one, ready for the next match.
 3. When the lead comes by, open **Hand off** and show the code. After they hear the beep, tap **Lead scanned it**.
 
@@ -34,14 +34,19 @@ If you miss a hand-off, nothing is lost. Your code keeps every report the lead h
 
 The PIN keeps scouts out of the Lead screens. It isn't strong security, because the app is a public website, but the team's merged data never leaves the lead's phone anyway. To change the PIN, see **Lead → Data → Change the lead PIN**.
 
+**Before an event, picking it and its teams:**
+1. **Lead → Schedule → Find an event.** It lists this season's upcoming Michigan events from FTCScout, so search by name or city and tap yours. Any event works, with any number of teams. You can also type an event code under **Type an event code instead**. The code is the end of the event's address on ftc-events.firstinspires.org, such as `USMICOQ`.
+2. Picking an event downloads its **team list**, so every team's name fills in, including out-of-state and rookie teams. This needs a moment of internet.
+
 **Event morning, loading the match schedule:**
-1. **Lead → Schedule.** Check the event code. It's the end of the event's address on ftc-events.firstinspires.org, for example `USMICOQ`. The default is set in `config.js`.
-2. With any internet (cell data is fine), tap **Download from FTCScout**. If it says the schedule isn't posted yet, wait a few minutes and try again.
-3. No signal? Type it into **No signal? Type or paste it**, one match per line: `match red1 red2 blue1 blue2`.
-4. Check a few matches against the printed schedule, then hold up **Share with scouts** so each scout can scan every part.
-5. If the schedule changes, load it again and have scouts rescan.
+1. With any internet (cell data is fine), tap **Download teams + schedule**. If it says the schedule isn't posted yet, wait a few minutes and try again.
+2. No signal? Type it into **No signal? Type or paste it**, one match per line: `match red1 red2 blue1 blue2`.
+3. Check a few matches against the printed schedule, then hold up **Share with scouts** so each scout can scan every part. Scanning it also moves each scout's phone onto the new event.
+4. If the schedule changes, load it again and have scouts rescan.
 
 Once a schedule is loaded, **Matches** also lists robots nobody scouted, in red.
+
+**Several events in a season:** every report remembers its event. The lead's screens show the current event by default. Tap **All events** at the top of the Lead screens for season-long averages. The spreadsheet always includes every event, with an Event column.
 
 **After each match:**
 1. Open the **Lead** tab, then **Scan**, and tap **Start camera**. Allow camera access the first time.
@@ -64,7 +69,7 @@ Once a schedule is loaded, **Matches** also lists robots nobody scouted, in red.
 Every season has a new game, so the questions change. **You only edit one file: `config.js`.** The scout form, QR codes, Matches and Robots screens, and the spreadsheet all build themselves from it.
 
 1. On GitHub, open `config.js` and click the pencil icon to edit.
-2. Change `season` to something new, like `"newgame-2027"`. This starts each phone on fresh, separate data. Update `event` to the new season's year and your first event's code.
+2. Change `season` to something new, like `"newgame-2027"`. This starts each phone on fresh, separate data. Update `ftcSeason` to the new FTC season year, and `event` to your first event's code.
 3. Change `appName`, and the `colors` if you like.
 4. Rewrite the `sections` list to match the new paper sheet. Each field is one line. The types are:
 
@@ -84,7 +89,8 @@ Every season has a new game, so the questions change. **You only edit one file: 
    - `id`: short, unique within the section; letters, numbers and dashes only.
    - `label`: the question scouts see. `short` is the column heading on the lead's screens.
    - `tone` (optional): `"good"`, `"warn"` or `"bad"` colors that option's badge.
-   - Counters all add into the **Total** column.
+   - Counters all add into the **Total** column, except ones marked `miss: true` (missed shots). Those are used for the **Accuracy** columns instead.
+   - Give choice or checks options an `rp:` number, such as `rp: 3` on Win, and the lead's screens add up **ranking points** per match.
 
 5. Click **Commit changes**. GitHub Pages republishes in about a minute.
 6. Have everyone open the app once **with internet** to pick up the change. Do this before the event, not during it.
