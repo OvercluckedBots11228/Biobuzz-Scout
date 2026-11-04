@@ -1494,12 +1494,34 @@
   // Install + offline
   let offlineReady = false;
   const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
-  if (!standalone) {
-    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
-    const hint = $("#install-hint");
-    hint.hidden = false;
-    hint.innerHTML = `<strong>Add this to your home screen before the event</strong>${ios ? "In Safari, tap the Share button, then “Add to Home Screen”." : "Open your browser menu (⋮), then “Add to Home screen” or “Install app”."} Then it works with no internet.`;
+  // Install steps for this kind of device. Recent iPads report themselves as a Mac, so check for touch too.
+  function installHint(ua, touchPoints) {
+    const iPad = /ipad/i.test(ua) || (/Macintosh/.test(ua) && touchPoints > 1);
+    const iOS = iPad || /iphone|ipod/i.test(ua);
+    const android = /android/i.test(ua);
+    const steps = iOS
+      ? (/CriOS|FxiOS|EdgiOS/i.test(ua)
+        ? "Tap the Share button in the address bar, then “Add to Home Screen”. (Safari works too.)"
+        : `In Safari, tap the Share button (the square with an arrow${iPad ? ", top right" : ", bottom of the screen"}), scroll down, tap “Add to Home Screen”, then “Add”.`)
+      : android
+        ? (/SamsungBrowser/i.test(ua) ? "Tap the menu (☰), then “Add page to”, then “Home screen”." : "Tap the browser menu (⋮), then “Add to Home screen” or “Install app”.")
+        : "On a laptop: in Chrome or Edge, click the install icon at the right end of the address bar. In Safari on a Mac, choose File → Add to Dock. Scouting works best on a phone.";
+    const after = iOS
+      ? "Then <b>always open it from the home-screen icon</b>. On iPhone and iPad, the icon and Safari keep separate data, so reports saved in one won't show in the other."
+      : "Then <b>always open it from the icon</b>. It works with no internet.";
+    return `<strong>Add this to your home screen before the event</strong>${esc(steps)} ${after}<button type="button" class="btn small install-btn" id="install-btn" hidden>Install app</button>`;
   }
+  if (!standalone) { const hint = $("#install-hint"); hint.hidden = false; hint.innerHTML = installHint(navigator.userAgent, navigator.maxTouchPoints || 0); }
+  // Chrome on Android (and desktop) can show its own install prompt from a button.
+  let installPrompt = null;
+  addEventListener("beforeinstallprompt", e => { e.preventDefault(); installPrompt = e; const b = $("#install-btn"); if (b) b.hidden = false; });
+  addEventListener("appinstalled", () => { $("#install-hint").hidden = true; installPrompt = null; });
+  document.addEventListener("click", async e => {
+    if (!e.target.closest("#install-btn") || !installPrompt) return;
+    installPrompt.prompt();
+    try { await installPrompt.userChoice; } catch {}
+    installPrompt = null; $("#install-btn").hidden = true;
+  });
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").then(() => navigator.serviceWorker.ready).then(() => { offlineReady = true; renderChrome(); }).catch(() => {});
   }
@@ -1509,7 +1531,7 @@
   document.title = C.appName;
 
   // test hooks for the README's troubleshooting steps and automated checks
-  window.__scout = { buildCodes, parseCode, importCode, qrSvg, consolidate, FIELDS, scheduleCodes, parseScheduleText, getSchedule: () => schedule, getEvent: () => event, pickEvent, setEvent, setTier, tierOf, transferCodes, getSinceBackup: () => sinceBackup, getOfficial: () => official };
+  window.__scout = { buildCodes, parseCode, importCode, qrSvg, consolidate, FIELDS, scheduleCodes, parseScheduleText, getSchedule: () => schedule, getEvent: () => event, pickEvent, setEvent, setTier, tierOf, transferCodes, getSinceBackup: () => sinceBackup, getOfficial: () => official, installHint };
 
   paintForm();
   show("scout");

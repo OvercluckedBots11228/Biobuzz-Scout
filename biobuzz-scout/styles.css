@@ -254,6 +254,9 @@ select, .tools input:not([type="checkbox"]) { width: 100%; min-width: 0; padding
 .tag-chips .chip.tag.bad[aria-pressed="true"] { background: var(--bad); border-color: var(--bad); color: #fff; }
 .tag-chips .chip { padding: 10px 14px; font-size: 15px; }
 
+.install-btn { display: block; margin-top: 8px; }
+.install-btn[hidden] { display: none; }
+
 /* Lead lock */
 .lead-login { text-align: center; margin: 28px 0 0; }
 .linklike { border: 0; background: none; color: var(--muted); font-size: 14px; text-decoration: underline; padding: 8px; }
