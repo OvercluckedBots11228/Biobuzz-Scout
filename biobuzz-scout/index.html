@@ -190,6 +190,13 @@
         <div id="data-msg" aria-live="polite"></div>
       </div>
       <div class="card">
+        <h2 class="section-h">All reports</h2>
+        <p class="hint">Find any report to correct it (match number, team, position, scout or any count) or delete it. Search by match number, team number, team name or scout.</p>
+        <label class="f">Search<input id="rep-find" type="search" autocomplete="off" placeholder="e.g. 12, 5618 or Ava"></label>
+        <p class="hint" id="rep-count"></p>
+        <ul class="list saved-list" id="rep-list"></ul>
+      </div>
+      <div class="card">
         <h2 class="section-h">Second lead phone</h2>
         <p class="hint">Copy everything on this phone (reports, deletions and pick lists) to another lead phone, for a backup or to hand over the lead role. On the other phone: unlock Lead, open <b>Scan</b>, start the camera, and point it here. The codes change by themselves; keep scanning until it says every part is in.</p>
         <div class="actions"><button type="button" class="btn" id="xfer-show">Show transfer codes</button></div>
@@ -219,6 +226,22 @@
     <label class="f">PIN<input class="big" id="pin-input" type="password" inputmode="numeric" autocomplete="off"></label>
     <p class="err" id="pin-err" hidden>That PIN isn't right. Try again.</p>
     <div class="actions"><button type="button" class="btn" id="pin-cancel">Cancel</button><button type="submit" class="btn primary">Unlock</button></div>
+  </form>
+</div>
+<div class="overlay" id="fix-overlay" hidden>
+  <form class="card pin-card edit-card" id="fix-form" novalidate>
+    <h2 class="section-h">Edit report</h2>
+    <label class="f" id="fix-pick-row" hidden>Which scout's report<select id="fix-pick"></select></label>
+    <p class="hint" id="fix-who"></p>
+    <div class="fields">
+      <label class="f">Match number<input class="big" id="fix-match" inputmode="numeric" autocomplete="off"></label>
+      <label class="f">Team number<input class="big" id="fix-team" inputmode="numeric" autocomplete="off"></label>
+      <label class="f">Alliance position<select id="fix-spot"><option value="">Not set</option><option value="0">Red 1</option><option value="1">Red 2</option><option value="2">Blue 1</option><option value="3">Blue 2</option></select></label>
+      <label class="f">Scout<input id="fix-scouter" autocomplete="off"></label>
+    </div>
+    <div id="fix-fields"></div>
+    <p class="err" id="fix-err" hidden>Match number and team number are both needed.</p>
+    <div class="actions edit-actions"><button type="button" class="btn" id="fix-cancel">Cancel</button><button type="submit" class="btn primary">Save changes</button></div>
   </form>
 </div>
 <div class="toast" id="toast" hidden></div>

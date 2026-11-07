@@ -21,6 +21,12 @@ It's a plain website hosted free on GitHub Pages. Once a phone has opened it and
 
 **Event morning:** once the lead has the schedule, tap **Get schedule from lead** on the Scout tab and point your camera at the lead's code. If it comes in parts, scan every part.
 
+**After saving:** the form stays on the same match and asks what's next: **Another robot in match 12 (Red 2)** to enter the next position, or **Next match** to move on at your usual position. Positions already saved for that match show a ✓. Once all four are saved on the phone, it moves to the next match by itself.
+
+**Changing the match number:** tap the number to type it, or use **−** and **+**.
+
+**Fixing a mistake after saving:** on **Hand off**, find the report under **Saved on this phone** and tap **Edit**. Fix anything, including the match number, team or position, and tap **Save changes**. It replaces the old report, so hand it off again and the lead's copy updates. Scanning the old code again won't undo the fix.
+
 **Match mode (recommended):** after picking your position and match, tap **Start match** right when the match starts. The screen shows only **Auto** with a 0:30 countdown, then an 8-second transition, then only **Teleop** with a 2:00 countdown. The bar turns red at 1:00 left for the endgame. When time runs out, it shows the result and notes questions and **Save report**. If the match is delayed or you started late, use **‹ Back** and **Next ›** to move between periods. **Full form** shows everything again. If the phone locks or the app closes mid-match, reopening it picks the timer back up.
 
 **Quick notes:** in Teleop and after the match, tap any chips that apply: *Fast cycles, Great driver, Tips the Hive, Wins Flowers, Plays defense, Slow intake, Got penalties, Robot tipped over*. It's much faster than typing. The lead sees counts like "Plays defense 3/4" and can filter by them. Use the notes box only for anything unusual.
@@ -62,11 +68,20 @@ Once a schedule is loaded, **Matches** also lists robots nobody scouted, in red.
 
 **If the camera won't start:** use **Take or pick a photo of the code** under the viewfinder. On an iPhone home-screen app, check **Settings → Safari → Camera**.
 
+**Editing a report on the lead phone:** there are three ways in, all opening the same editor:
+- **Matches:** tap **Edit** on a robot's row. If two scouts covered that robot, pick whose report to change.
+- **Robots:** tap a team, then **Edit** next to the report.
+- **Data → All reports:** search by match number, team or scout, then **Edit** or **Delete**.
+
+You can change the match number, team, alliance position, scout name and every count and answer. Edits are kept even if the scout's old code is scanned again.
+
 **Second lead phone:** to copy everything (reports, deletions, pick lists) to another phone with no internet, go to **Data → Second lead phone → Show transfer codes**. On the other phone, unlock Lead, open **Scan**, start the camera and point it at the codes. They change every 1.5 seconds and loop, and the receiving phone says when every part is in. Use it to share the lead role or to swap if a battery is dying. A saved backup file also works with **Restore or combine a backup**.
 
 **Pick list:** tap ☆ next to a team on **Robots** to star it. On **Picks**, sort teams into **1st pick**, **2nd pick** or **Avoid** with the menu, and order each tier with ▲ ▼. Tier labels show on Robots and in the spreadsheet, and **Save pick list (CSV)** exports just the list. Pick lists are kept per event.
 
-**Official results:** when you have internet, open **Official → Download official results**. It pulls scores and rankings from FTCScout and saves them for offline use. It then shows:
+**Official results:** the Official screen also shows each team's **OPR** (estimated points it adds to its alliance), average points, auto, Hive tips and fouls, plus a full **Official match results** table with every alliance's score breakdown and bonus RPs. Robots gets an **Official OPR** column, and Matches cards show the official breakdown. Which numbers appear is set under `official` in `config.js`.
+
+**Getting official results:** when you have internet, open **Official → Download official results**. It pulls scores and rankings from FTCScout and saves them for offline use. It then shows:
 - **Scout check:** how often each scout's match result and bonus RP agree with the official score, with each mistake listed.
 - **Official rankings** beside your scouted averages.
 - Official scores on each **Matches** card, with any scouted result that doesn't match.

@@ -111,15 +111,23 @@
         <button type="button" class="btn small" id="mb-exit">Full form</button>
       </div>
     </div>
+    <div class="banner warn" id="edit-banner" hidden></div>
     <div class="card" id="head-card">
       <p class="event-line" id="event-line"></p>
+      <div class="banner good next-choice" id="next-choice" hidden></div>
+      <div class="f match-f"><span>Match number</span>
+        <div class="stepper">
+          <button type="button" data-mstep="-1" aria-label="Previous match">−</button>
+          <input class="big" id="f-match" inputmode="numeric" autocomplete="off" placeholder="12" aria-label="Match number">
+          <button type="button" data-mstep="1" aria-label="Next match">+</button>
+        </div>
+      </div>
       <div class="q" id="spot-row"><span>Alliance position</span><div class="seg" role="group" aria-label="Alliance position">
         ${SPOTS.map((s, i) => `<button type="button" class="spot ${i < 2 ? "red" : "blue"}" data-spot="${i}" aria-pressed="false">${s}</button>`).join("")}
-      </div></div>
+      </div><p class="hint" id="match-progress"></p></div>
       <div class="fields">
         <label class="f">Team number<input class="big" id="f-team" inputmode="numeric" autocomplete="off" placeholder="1234"></label>
-        <label class="f">Match number<input class="big" id="f-match" inputmode="numeric" autocomplete="off" placeholder="12"></label>
-        <label class="f full">Team name<input id="f-teamName" autocomplete="off" placeholder="Fills in from the team number"></label>
+        <label class="f">Team name<input id="f-teamName" autocomplete="off" placeholder="Fills in from the team number"></label>
         <label class="f full">Your name<input id="f-scouter" autocomplete="name" placeholder="Scout name"></label>
       </div>
       <p class="hint" id="sched-line"></p>
@@ -136,11 +144,34 @@
     <p class="err" id="form-err" hidden></p>
     <div class="actions" id="form-actions">
       <button type="button" class="btn" id="reset">Clear</button>
-      <button type="submit" class="btn primary">Save report</button>
+      <button type="button" class="btn" id="edit-cancel" hidden>Cancel edit</button>
+      <button type="submit" class="btn primary" id="save-btn">Save report</button>
     </div>`;
 
   const HEAD = { team: "f-team", match: "f-match", teamName: "f-teamName", scouter: "f-scouter" };
   let nameTouched = !!form.teamName;
+
+  // Positions this phone has already saved for a match at the current event.
+  function savedSpots(match) {
+    const out = new Set(); if (!match) return out;
+    for (const r of Object.values(mine)) if (r.event === event.code && String(r.match) === String(match) && r.spot != null && r.id !== form.editId) out.add(r.spot);
+    return out;
+  }
+  // Editing a saved report: the form holds that report until Save changes or Cancel.
+  let editStash = null;
+  function startEdit(id) {
+    const r = mine[id]; if (!r) return;
+    if (!form.editId) editStash = JSON.parse(JSON.stringify(form));
+    form = { team: r.team, teamName: r.teamName || "", match: r.match, scouter: r.scouter, spot: r.spot, v: Object.assign(blankValues(), JSON.parse(JSON.stringify(r.v))), editId: id };
+    nameTouched = !!form.teamName;
+    if (document.body.classList.contains("match-mode")) exitMatchMode();
+    show("scout"); paintForm(); window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  function endEdit() {
+    form = editStash ? Object.assign(blankForm(), editStash) : blankForm();
+    delete form.editId; editStash = null; nameTouched = !!form.teamName;
+    store.set("draft", form); paintForm(); window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   function paintForm() {
     for (const [k, id] of Object.entries(HEAD)) { const el = document.getElementById(id); if (el.value !== form[k]) el.value = form[k]; }
@@ -148,7 +179,27 @@
     F.querySelectorAll("[data-pick]").forEach(b => b.setAttribute("aria-pressed", String(JSON.stringify(form.v[b.dataset.pick]) === b.dataset.val)));
     F.querySelectorAll("[data-check]").forEach(b => b.setAttribute("aria-pressed", String(form.v[b.dataset.check].includes(JSON.parse(b.dataset.val)))));
     F.querySelectorAll("[data-text]").forEach(el => { if (el.value !== form.v[el.dataset.text]) el.value = form.v[el.dataset.text]; });
-    F.querySelectorAll("[data-spot]").forEach(b => b.setAttribute("aria-pressed", String(form.spot === +b.dataset.spot)));
+    const done = savedSpots(form.match.trim());
+    F.querySelectorAll("[data-spot]").forEach(b => {
+      b.setAttribute("aria-pressed", String(form.spot === +b.dataset.spot));
+      b.textContent = SPOTS[+b.dataset.spot] + (done.has(+b.dataset.spot) ? " ✓" : "");
+    });
+    const m = form.match.trim();
+    $("#match-progress").textContent = !m || !done.size ? "" : done.size < 4
+      ? `Match ${m}: ${done.size} of 4 robots saved on this phone (✓).`
+      : `Match ${m}: all 4 robots saved on this phone. Use + for the next match.`;
+    const ls = form.lastSaved, nc = $("#next-choice");
+    nc.hidden = !ls || form.editId || String(ls.match) !== m;
+    if (!nc.hidden) {
+      const open = [1, 2, 3].map(d => (ls.spot + d) % 4).find(i => !done.has(i));
+      nc.innerHTML = `<strong>Saved ${esc(SPOTS[ls.spot])} (${esc(ls.team)}) for match ${esc(ls.match)}. What's next?</strong>
+        <div class="actions">${open != null ? `<button type="button" class="btn small" data-next="robot" data-spot2="${open}">Another robot in match ${esc(ls.match)} (${SPOTS[open]})</button>` : ""}
+        <button type="button" class="btn small primary-lite" data-next="match">Next match (${/^\d+$/.test(ls.match) ? +ls.match + 1 : esc(ls.match)}, ${SPOTS[ls.spot]})</button></div>`;
+    }
+    $("#edit-banner").hidden = !form.editId;
+    if (form.editId) $("#edit-banner").innerHTML = `<strong>Editing a saved report</strong>Change anything, including the match number, then tap <b>Save changes</b>. It replaces the old report. Hand it off again so the lead gets the fix.`;
+    $("#edit-cancel").hidden = !form.editId;
+    $("#save-btn").textContent = form.editId ? "Save changes" : "Save report";
     paintDupHint(); paintSchedLine();
   }
 
@@ -191,7 +242,7 @@
     if (k === "teamName") nameTouched = !!el.value;
     if (k === "team" && !nameTouched) { form.teamName = teamNames()[form.team.trim()] || ""; $("#f-teamName").value = form.teamName; }
     if (k === "scouter") try { localStorage.setItem("bbs:name", form.scouter); } catch {}
-    if (k === "match") { const before = form.team; applySchedule(); if (form.team !== before) { $("#f-team").value = form.team; $("#f-teamName").value = form.teamName; } paintSchedLine(); }
+    if (k === "match") { const before = form.team; applySchedule(); if (form.team !== before) { $("#f-team").value = form.team; $("#f-teamName").value = form.teamName; } paintForm(); }
     if (k === "team" || k === "match") paintDupHint();
     saveDraft();
   });
@@ -211,6 +262,19 @@
     } else if (b.dataset.spot) {
       form.spot = +b.dataset.spot;
       applySchedule(); paintForm();
+    } else if (b.dataset.next) {
+      const ls = form.lastSaved; if (!ls) return;
+      if (b.dataset.next === "robot") { form.match = String(ls.match); form.spot = +b.dataset.spot2; }
+      else { form.match = /^\d+$/.test(ls.match) ? String(+ls.match + 1) : String(ls.match); form.spot = ls.spot; }
+      delete form.lastSaved; form.team = ""; form.teamName = ""; nameTouched = false;
+      applySchedule(); paintForm(); window.scrollTo({ top: 0, behavior: "smooth" });
+    } else if (b.dataset.mstep) {
+      const cur = parseInt(form.match, 10);
+      form.match = String(Math.max(1, (isNaN(cur) ? 0 : cur) + +b.dataset.mstep));
+      applySchedule(); paintForm();
+    } else if (b.id === "edit-cancel") {
+      endEdit(); toast("Edit cancelled. Nothing changed.");
+      return;
     } else if (b.id === "get-schedule") {
       scanReturn = true; show("lead"); showSub("scan"); startCamera();
       showResult("", "Scan the lead's schedule code", "The lead opens Lead → Schedule and shows the code under “Share with scouts”.");
@@ -318,14 +382,30 @@
       return;
     }
     err.hidden = true;
-    const r = { id: newId(), team, match, scouter, teamName: form.teamName.trim(), at: Date.now(), spot: form.spot, event: event.code, v: JSON.parse(JSON.stringify(form.v)), sent: leadUnlocked };
+    const editing = form.editId && mine[form.editId];
+    // An edit keeps the report's id and gets a newer time, so the lead's copy is replaced when it's handed off again.
+    const r = { id: editing ? form.editId : newId(), team, match, scouter, teamName: form.teamName.trim(), at: Date.now(), spot: form.spot, event: editing ? editing.event : event.code, v: JSON.parse(JSON.stringify(form.v)), sent: leadUnlocked };
     for (const f of FIELDS) if (f.type === "text") r.v[f.key] = (r.v[f.key] || "").trim();
+    const prev = mine[r.id];
     mine[r.id] = r;
-    if (!store.set("mine", mine)) { delete mine[r.id]; return; }
-    toast(leadUnlocked ? `Saved: team ${team}, match ${match}. It's already in your lead results.` : `Saved: team ${team}, match ${match}. Hand off when the lead asks.`);
-    const next = blankForm(); next.match = /^\d+$/.test(match) ? String(+match + 1) : match;
-    next.spot = form.spot;
+    if (!store.set("mine", mine)) { if (prev) mine[r.id] = prev; else delete mine[r.id]; return; }
     if (document.body.classList.contains("match-mode")) exitMatchMode();
+    if (editing) {
+      toast(leadUnlocked ? `Updated: match ${match}, ${SPOTS[form.spot]}, team ${team}.` : `Updated: match ${match}, ${SPOTS[form.spot]}, team ${team}. Hand it off again so the lead gets the fix.`);
+      endEdit(); renderChrome(); return;
+    }
+    // After saving, stay on this match and ask: another robot in it, or the next match?
+    // Once all four positions are saved here, go straight to the next match.
+    const next = blankForm();
+    const done = savedSpots(match);
+    if (done.size >= 4) {
+      next.match = /^\d+$/.test(match) ? String(+match + 1) : match; next.spot = form.spot;
+      toast(`Match ${match}: all 4 robots saved. On to match ${next.match}.`);
+    } else {
+      next.match = match; next.spot = form.spot;
+      next.lastSaved = { match, spot: form.spot, team };
+      toast(leadUnlocked ? `Saved: team ${team}, match ${match}. It's already in your lead results.` : `Saved: team ${team}, match ${match}. Hand off when the lead asks.`);
+    }
     form = next; nameTouched = false; applySchedule(); store.set("draft", form);
     paintForm(); window.scrollTo({ top: 0, behavior: "smooth" });
     renderChrome();
@@ -414,6 +494,14 @@
         ? `<div class="banner good"><strong>Nothing to hand off on the lead's phone</strong>Reports you scout here go straight into your Matches and Robots results.</div>`
         : `<div class="banner good"><strong>All caught up</strong>Every report on this phone has been handed off.</div>`}
       <div class="card">
+        <h2 class="section-h">Saved on this phone</h2>
+        <p class="hint">Wrong match number, team or position? Tap <b>Edit</b>, fix it and save. The fixed report replaces the old one${leadUnlocked ? "." : " when the lead scans it again."}</p>
+        <ul class="list saved-list">${[...all].sort((a, b) => natural(b.event || "", a.event || "") || natural(b.match, a.match) || (a.spot ?? 9) - (b.spot ?? 9)).map(r => `
+          <li><span><b>Match ${esc(r.match)}</b> · ${r.spot != null ? esc(SPOTS[r.spot]) + " · " : ""}${esc(r.team)}${r.event && r.event !== event.code ? ` · ${esc(r.event)}` : ""}
+            <small>${r.sent ? "Handed off" : "Waiting to hand off"}</small></span>
+            <button type="button" class="btn small" data-edit="${esc(r.id)}">Edit</button></li>`).join("")}</ul>
+      </div>
+      <div class="card">
         <label class="switch"><input type="checkbox" id="show-all" ${showAll ? "checked" : ""}> Show reports already handed off (${sentCount}), in case the lead needs them again</label>
         ${sentCount ? `<div class="actions"><button type="button" class="btn small danger" id="clear-sent">Delete handed-off reports from this phone</button></div>` : ""}
       </div>`;
@@ -421,6 +509,7 @@
   $("#handoff").addEventListener("click", e => {
     const b = e.target.closest("button"); if (!b) return;
     if (b.dataset.qr) { codeIdx += +b.dataset.qr; renderHandoff(); return; }
+    if (b.dataset.edit) { startEdit(b.dataset.edit); return; }
     if (b.id === "mark-sent") {
       for (const r of Object.values(mine)) r.sent = true;
       store.set("mine", mine); codeIdx = 0; toast("Marked as handed off."); renderChrome(); return;
@@ -500,20 +589,27 @@
     if (!leadUnlocked) { beep(false); showResult("bad", "That's a scout's report code", "Only the lead's phone collects reports. Scan the schedule code on the lead's Schedule screen."); return; }
     const res = parseCode(text);
     if (res.error) { beep(false); showResult("bad", "Not added", res.error); return; }
-    const { added, dup } = addToLead(res.reports);
+    const { added, dup, updated } = addToLead(res.reports);
     beep(true);
     const vf = $("#viewfinder"); vf.classList.add("hit"); setTimeout(() => vf.classList.remove("hit"), 600);
     const who = [...new Set(res.reports.map(r => r.scouter))].join(", ");
     const what = res.reports.map(r => `M${r.match}·${r.team}`).join(", ");
-    showResult(added ? "good" : "", added ? `Added ${added} new report${added > 1 ? "s" : ""} from ${who}` : `Already have these from ${who}`,
-      `${what}${dup && added ? ` (${dup} already had)` : ""}`);
-    if (added) backupNag();
+    const head = [added && `Added ${added} new report${added > 1 ? "s" : ""}`, updated && `updated ${updated} edited report${updated > 1 ? "s" : ""}`].filter(Boolean).join(" and ");
+    showResult(added || updated ? "good" : "", head ? `${head[0].toUpperCase() + head.slice(1)} from ${who}` : `Already have these from ${who}`,
+      `${what}${dup && (added || updated) ? ` (${dup} already had)` : ""}`);
+    if (added || updated) backupNag();
     renderChrome();
   }
   function addToLead(reports, quiet) {
-    let added = 0, dup = 0;
+    let added = 0, dup = 0, updated = 0;
     for (const r of reports) {
-      if (lead[r.id] || removed[r.id]) { dup++; continue; }
+      if (removed[r.id]) { dup++; continue; }
+      const have = lead[r.id] || mine[r.id];
+      if (have) {
+        // Same report again: keep it unless this copy was edited later.
+        if ((r.at || 0) > (have.at || 0)) { lead[r.id] = r; updated++; } else dup++;
+        continue;
+      }
       lead[r.id] = r; added++;
       if (quiet) continue; // copied from another lead phone: not a scout hand-off
       const s = seen[r.scouter] || { at: 0, matches: [], count: 0 };
@@ -521,8 +617,8 @@
       seen[r.scouter] = s;
     }
     store.set("lead", lead); store.set("seen", seen);
-    if (added) { sinceBackup += added; store.set("sinceBackup", sinceBackup); }
-    return { added, dup };
+    if (added || updated) { sinceBackup += added + updated; store.set("sinceBackup", sinceBackup); }
+    return { added, dup, updated };
   }
   $("#cam-toggle").addEventListener("click", () => (stream ? stopCamera() : startCamera()));
   $("#scan-photo").addEventListener("change", async e => {
@@ -749,7 +845,7 @@
   function allLeadReports() {
     const out = {};
     for (const r of Object.values(mine)) out[r.id] = r;  // a lead who also scouts counts their own reports
-    for (const r of Object.values(lead)) out[r.id] = r;
+    for (const r of Object.values(lead)) if (!out[r.id] || (r.at || 0) >= (out[r.id].at || 0)) out[r.id] = r; // newest copy wins
     for (const id of Object.keys(removed)) delete out[id];
     return Object.values(out);
   }
@@ -863,7 +959,8 @@
       const es = (c.byMatch.get(m) || []).sort((a, b) => b.total - a.total), flags = es.reduce((s, e) => s + e.flags.length, 0);
       const row = sched && sched.matches[String(+m)];
       const om = !tools.allEvents && official[event.code] && official[event.code].matches[String(+m)];
-      const offLine = om ? `<p class="official-line">Official: <b class="red-t">Red ${om.red.total}</b> · <b class="blue-t">Blue ${om.blue.total}</b>${es.map(e => e.reports.map(r => checkReport(r, official[event.code])).filter(k => k && k.result && !k.result.ok).map(k => ` · <span class="pill warn">${esc(e.team)}: scouted ${esc(k.result.scouted)}, was ${esc(k.result.actual)}</span>`).join("")).join("")}</p>` : "";
+      const brief = sc => ((C.official || {}).match || []).filter(([k]) => sc.f && sc.f[k] != null).slice(0, 3).map(([k, l]) => `${esc(l)} ${sc.f[k]}`).join(", ");
+      const offLine = om ? `<p class="official-line">Official: <b class="red-t">Red ${om.red.total}</b>${brief(om.red) ? ` (${brief(om.red)})` : ""} · <b class="blue-t">Blue ${om.blue.total}</b>${brief(om.blue) ? ` (${brief(om.blue)})` : ""}${es.map(e => e.reports.map(r => checkReport(r, official[event.code])).filter(k => k && k.result && !k.result.ok).map(k => ` · <span class="pill warn">${esc(e.team)}: scouted ${esc(k.result.scouted)}, was ${esc(k.result.actual)}</span>`).join("")).join("")}</p>` : "";
       const spotOf = e => { const i = row ? row.findIndex(x => String(x) === String(e.team)) : -1; return i >= 0 ? i : e.spot ?? -1; };
       const missing = row ? row.map((t, i) => [t, i]).filter(([t]) => !es.some(e => e.team === String(t))) : [];
       if (tools.matchCheck && !flags && !missing.length) return "";
@@ -875,7 +972,7 @@
             ${RP_FIELDS.length ? `<td>${fmt(e.rp)}</td>` : ""}
             ${COUNTERS.map(f => `<td>${counterCell(f, e.v[f.key])}</td>`).join("")}
             ${OTHER.filter(f => !f.tags).map(f => `<td>${f.type === "yesno" ? yn(e.v[f.key]) : f.type === "choice" ? choicePill(f, e.v[f.key]) : f.options.filter(o => e.v[f.key][o.id] >= 0.5).map(o => esc(o.short || o.label)).join(", ") || "–"}</td>`).join("")}
-            <td>${e.n}</td></tr>`).join("")}
+            <td class="row-btns">${e.n} <button type="button" class="btn small" data-fix="${esc(e.reports.map(r => r.id).join(","))}">Edit</button></td></tr>`).join("")}
         </tbody></table></div>` : ""}
         ${es.filter(e => e.flags.length).map(e => `<p class="flag">Team ${esc(e.team)}: ${e.flags.map(esc).join(" · ")} (${e.reports.map(r => esc(r.scouter)).join(", ")})</p>`).join("")}
         ${offLine}
@@ -905,7 +1002,10 @@
   function robotColumns() {
     const cols = [
       { id: "team", label: "Team", sortLabel: "Team number", sort: r => r.team, html: r => { const t = tierOf(r.team); return `<button type="button" class="star ${t ? "on" : ""}" data-star="${esc(r.team)}" aria-label="${t ? "On pick list" : "Star"} ${esc(r.team)}">${t ? "★" : "☆"}</button>${esc(r.team)}${r.flags ? ' <span class="pill warn" title="Scouts disagreed somewhere">!</span>' : ""} ${t && t !== "star" ? tierTag(t) : ""}<small>${esc(r.teamName)}</small>`; }, cls: "team" },
-      ...(official[event.code] && Object.keys(official[event.code].teams).length && !tools.allEvents ? [{ id: "offRank", label: "Rank", group: "official", sortLabel: "Official rank", sort: r => { const o = official[event.code].teams[r.team]; return o ? -o.rank : null; }, html: r => { const o = official[event.code].teams[r.team]; return o ? `#${o.rank}` : "–"; } }] : []),
+      ...(official[event.code] && Object.keys(official[event.code].teams).length && !tools.allEvents ? [
+        { id: "offRank", label: "Rank", group: "official", sortLabel: "Official rank", sort: r => { const o = official[event.code].teams[r.team]; return o ? -o.rank : null; }, html: r => { const o = official[event.code].teams[r.team]; return o ? `#${o.rank}` : "–"; } },
+        { id: "offOpr", label: "OPR", group: "official", sortLabel: "Official OPR", sort: r => { const o = official[event.code].teams[r.team]; return o && o.opr ? o.opr.totalPointsNp : null; }, html: r => { const o = official[event.code].teams[r.team]; return o && o.opr && o.opr.totalPointsNp != null ? fmt(o.opr.totalPointsNp) : "–"; } },
+      ] : []),
       { id: "avgTotal", group: "avg", label: "Total", sortLabel: "Total pieces (average)", sort: r => r.avgTotal, html: r => fmt(r.avgTotal), cls: "tot" },
       { id: "best", label: "Best", sortLabel: "Best single match", sort: r => r.best, html: r => fmt(r.best) },
       { id: "matches", label: "Matches", sortLabel: "Matches scouted", sort: r => r.matches, html: r => r.matches },
@@ -1004,7 +1104,7 @@
           <td>${SCORED.reduce((s, f) => s + (+x.v[f.key] || 0), 0)}</td>
           ${OTHER.filter(f => f.type !== "checks").map(f => `<td>${f.type === "yesno" ? yn(x.v[f.key]) : choicePill(f, x.v[f.key])}</td>`).join("")}
           <td>${esc(x.scouter)}</td>
-          <td><button class="btn small danger" data-del="${esc(x.id)}" type="button">Delete</button></td>
+          <td class="row-btns"><button class="btn small" data-fix="${esc(x.id)}" type="button">Edit</button> <button class="btn small danger" data-del="${esc(x.id)}" type="button">Delete</button></td>
         </tr>`)).join("")}</tbody></table></div></div>
       <div><h3>Notes</h3>${notes.length ? `<ul class="notes">${notes.map(n => `<li><em>Match ${esc(n.m)} · ${esc(n.s)}</em>${esc(n.t)}</li>`).join("")}</ul>` : '<p class="hint">No notes for this team yet.</p>'}</div>
     </div></td></tr>`;
@@ -1018,6 +1118,8 @@
       else toast(`${star.dataset.star} is on your ${TIERS.find(x => x[0] === t)[1]} list. Change it on Picks.`);
       renderLead(); return;
     }
+    const fix = e.target.closest("[data-fix]");
+    if (fix) { openFix(fix.dataset.fix.split(",")); return; }
     const del = e.target.closest("[data-del]");
     if (del) {
       if (!del.dataset.armed) { del.dataset.armed = "1"; del.textContent = "Confirm"; return; }
@@ -1100,6 +1202,101 @@
     lead = {}; removed = {}; seen = {};
     store.set("lead", lead); store.set("removed", removed); store.set("seen", seen);
     delete b.dataset.armed; b.textContent = "Clear lead data"; toast("Lead data cleared."); renderChrome();
+  });
+
+
+  // ===================================================================
+  //  LEAD: FIX A REPORT (wrong match number, team or position)
+  //  The fix is saved as a newer copy, so a later rescan of the old code doesn't undo it.
+  // ===================================================================
+  let fixId = null;
+  const fxId = k => "fx-" + k.replace(/\./g, "-");
+  // A form for every scouted field, built from config.js.
+  $("#fix-fields").innerHTML = C.sections.map(sec => `<fieldset class="fx-sec"><legend>${esc(sec.title)}</legend><div class="fields">${
+    FIELDS.filter(f => f.section === sec).map(f => {
+      const id = fxId(f.key);
+      if (f.type === "counter") return `<label class="f">${esc(f.label)}<input id="${id}" inputmode="numeric" type="number" min="0" step="1"></label>`;
+      if (f.type === "yesno") return `<label class="f">${esc(f.short || f.label)}<select id="${id}"><option value="">–</option><option value="true">Yes</option><option value="false">No</option></select></label>`;
+      if (f.type === "choice") return `<label class="f">${esc(f.short || f.label)}<select id="${id}"><option value="">–</option>${f.options.map(o => `<option value="${esc(o.id)}">${esc(o.label)}</option>`).join("")}</select></label>`;
+      if (f.type === "checks") return `<div class="f full"><span>${esc(f.short || f.label)}</span><div class="chips">${f.options.map(o => `<label class="chip chk"><input type="checkbox" data-fxk="${esc(f.key)}" value="${esc(o.id)}"> ${esc(o.label)}</label>`).join("")}</div></div>`;
+      return `<label class="f full">${esc(f.label)}<textarea id="${id}" rows="2"></textarea></label>`;
+    }).join("")}</div></fieldset>`).join("");
+  function loadFix(r) {
+    fixId = r.id;
+    $("#fix-who").textContent = `Saved ${new Date(r.at).toLocaleString()}${r.event && r.event !== event.code ? ` at ${r.event}` : ""}. Changes are kept even if the scout's old code is scanned again.`;
+    $("#fix-match").value = r.match; $("#fix-team").value = r.team; $("#fix-spot").value = r.spot ?? ""; $("#fix-scouter").value = r.scouter;
+    for (const f of FIELDS) {
+      const v = r.v[f.key];
+      if (f.type === "checks") $("#fix-fields").querySelectorAll(`[data-fxk="${f.key}"]`).forEach(c => (c.checked = (v || []).includes(c.value)));
+      else { const el = document.getElementById(fxId(f.key)); el.value = v == null ? "" : String(v); }
+    }
+    $("#fix-err").hidden = true;
+  }
+  // Opens the editor for one report, or for a choice of reports (a match row can merge several scouts).
+  function openFix(ids) {
+    ids = [].concat(ids);
+    const reps = allLeadReports().filter(x => ids.includes(x.id)); if (!reps.length) return;
+    $("#fix-pick-row").hidden = reps.length < 2;
+    $("#fix-pick").innerHTML = reps.map(r => `<option value="${esc(r.id)}">${esc(r.scouter)}: match ${esc(r.match)}, ${r.spot != null ? SPOTS[r.spot] + ", " : ""}${esc(r.team)}</option>`).join("");
+    loadFix(reps[0]);
+    $("#fix-overlay").hidden = false;
+    $("#fix-form").scrollTop = 0;
+  }
+  $("#fix-pick").addEventListener("change", e => { const r = allLeadReports().find(x => x.id === e.target.value); if (r) loadFix(r); });
+  $("#fix-cancel").addEventListener("click", () => { $("#fix-overlay").hidden = true; fixId = null; });
+  $("#fix-form").addEventListener("submit", e => {
+    e.preventDefault();
+    const r = allLeadReports().find(x => x.id === fixId); if (!r) return;
+    const match = $("#fix-match").value.trim(), team = $("#fix-team").value.trim(), spot = $("#fix-spot").value;
+    if (!match || !team) { $("#fix-err").hidden = false; $("#fix-match").scrollIntoView({ block: "center" }); return; }
+    const v = {};
+    for (const f of FIELDS) {
+      if (f.type === "checks") { v[f.key] = [...$("#fix-fields").querySelectorAll(`[data-fxk="${f.key}"]:checked`)].map(c => c.value); continue; }
+      const raw = document.getElementById(fxId(f.key)).value;
+      v[f.key] = f.type === "counter" ? Math.max(0, parseInt(raw, 10) || 0) : f.type === "yesno" ? (raw === "" ? null : raw === "true") : f.type === "choice" ? (raw || null) : raw.trim();
+    }
+    const changedTeam = team !== r.team;
+    // Saved as a newer copy so a rescan of the scout's old code doesn't undo it.
+    lead[r.id] = { ...r, match, team, spot: spot === "" ? null : +spot, scouter: $("#fix-scouter").value.trim() || r.scouter,
+      teamName: changedTeam ? (teamNames()[team] || "") : r.teamName, v, at: Math.ceil(Date.now() / 1000) * 1000 };
+    delete lead[r.id].sent;
+    store.set("lead", lead);
+    sinceBackup++; store.set("sinceBackup", sinceBackup);
+    $("#fix-overlay").hidden = true; fixId = null;
+    toast(`Saved changes: match ${match}${spot !== "" ? ", " + SPOTS[+spot] : ""}, team ${team}.`);
+    renderChrome();
+  });
+  // Delete with a second tap to confirm; used by Robots and the Data list.
+  function deleteReport(id) {
+    removed[id] = true; delete lead[id];
+    store.set("removed", removed); store.set("lead", lead);
+    toast("Report deleted."); renderChrome();
+  }
+
+
+  $("#matches").addEventListener("click", e => {
+    const b = e.target.closest("[data-fix]"); if (b) openFix(b.dataset.fix.split(","));
+  });
+
+  // ---------- Data: every report, searchable, with Edit and Delete ----------
+  function renderReportList() {
+    const q = ($("#rep-find").value || "").trim().toLowerCase();
+    const all = allLeadReports().filter(r => tools.allEvents || (r.event || "") === event.code)
+      .sort((a, b) => natural(b.match, a.match) || (a.spot ?? 9) - (b.spot ?? 9));
+    const names = teamNames();
+    const hits = all.filter(r => !q || String(r.match) === q.replace(/^m/, "") || r.team.startsWith(q) || r.scouter.toLowerCase().includes(q) || (names[r.team] || "").toLowerCase().includes(q));
+    const shown = hits.slice(0, 60);
+    $("#rep-count").textContent = !all.length ? "" : hits.length > shown.length ? `Showing ${shown.length} of ${hits.length}. Search to narrow it down.` : `${hits.length} report${hits.length === 1 ? "" : "s"}`;
+    $("#rep-list").innerHTML = !all.length ? `<p class="hint">No reports yet.</p>` : shown.map(r => `
+      <li><span><b>Match ${esc(r.match)}</b> · ${r.spot != null ? esc(SPOTS[r.spot]) + " · " : ""}${esc(r.team)} ${esc(names[r.team] || "")}<small>${esc(r.scouter)}${tools.allEvents && r.event ? " · " + esc(r.event) : ""}</small></span>
+        <span class="row-btns"><button type="button" class="btn small" data-fix="${esc(r.id)}">Edit</button> <button type="button" class="btn small danger" data-rdel="${esc(r.id)}">Delete</button></span></li>`).join("");
+  }
+  $("#rep-find").addEventListener("input", renderReportList);
+  $("#rep-list").addEventListener("click", e => {
+    const f = e.target.closest("[data-fix]"); if (f) return openFix(f.dataset.fix);
+    const d = e.target.closest("[data-rdel]"); if (!d) return;
+    if (!d.dataset.armed) { d.dataset.armed = "1"; d.textContent = "Confirm"; setTimeout(() => { if (d.isConnected) { delete d.dataset.armed; d.textContent = "Delete"; } }, 3000); return; }
+    deleteReport(d.dataset.rdel);
   });
 
   // ===================================================================
@@ -1224,10 +1421,15 @@
       for (const m of await mr.json()) {
         if (m.tournamentLevel !== "Quals" || !m.hasBeenPlayed || !m.scores) continue;
         const at = (a, st) => ((m.teams || []).find(x => x.alliance === a && x.station === st) || {}).teamNumber;
-        const side = sc => { const o = { total: sc.totalPoints, np: sc.totalPointsNp, auto: sc.autoPoints, rp: {} }; for (const [k, v] of Object.entries(sc)) if (/rp$/i.test(k)) o.rp[k] = !!v; return o; };
+        // Keep every number FTCScout reports (f), plus the bonus-RP flags (rp).
+        const side = sc => { const o = { total: sc.totalPoints, np: sc.totalPointsNp, auto: sc.autoPoints, rp: {}, f: {} };
+          for (const [k, v] of Object.entries(sc)) { if (/rp$/i.test(k)) o.rp[k] = !!v; else if (typeof v === "number" && !/^(season|matchId)$/.test(k)) o.f[k] = v; }
+          return o; };
         matches[String(m.id)] = { teams: [at("Red", "One"), at("Red", "Two"), at("Blue", "One"), at("Blue", "Two")].map(String), red: side(m.scores.red), blue: side(m.scores.blue) };
       }
-      for (const t of await tr.json()) if (t.stats && t.stats.rank) teams[String(t.teamNumber)] = { rank: t.stats.rank, rs: t.stats.rp, w: t.stats.wins, l: t.stats.losses, t: t.stats.ties, played: t.stats.qualMatchesPlayed };
+      const keep = o => Object.fromEntries(Object.entries(o || {}).filter(([, v]) => typeof v === "number"));
+      for (const t of await tr.json()) if (t.stats && t.stats.rank) teams[String(t.teamNumber)] = { rank: t.stats.rank, rs: t.stats.rp, w: t.stats.wins, l: t.stats.losses, t: t.stats.ties, played: t.stats.qualMatchesPlayed,
+        avg: keep(t.stats.avg), opr: keep(t.stats.opr), max: keep(t.stats.max) };
       official[code] = { at: Date.now(), matches, teams };
       store.set("official", official);
       const n = Object.keys(matches).length;
@@ -1263,6 +1465,11 @@
     const el = $("#official"), off = official[event.code];
     if (!off) { el.innerHTML = `<div class="empty"><strong>No official results on this phone yet</strong>Tap <b>Download official results</b> when you have internet, for example at lunch or between matches.</div>`; return; }
     const names = teamNames(), byTeam = Object.fromEntries(c.robots.map(r => [r.team, r]));
+    // Only the configured official numbers FTCScout actually has this season.
+    const anyMatch = Object.values(off.matches)[0], anyTeam = Object.values(off.teams)[0];
+    const matchCols = ((C.official || {}).match || []).filter(([k]) => anyMatch && anyMatch.red.f && k in anyMatch.red.f);
+    const teamCols = ((C.official || {}).team || []).filter(([k]) => anyTeam && anyTeam.avg && k in anyTeam.avg);
+    const rpCols = BONUS_FIELD && anyMatch ? BONUS_FIELD.options.map(o => [officialRpKey(o, anyMatch.red.rp), o.label]).filter(([k]) => k) : [];
     // Scout check: how often each scout's result and bonus RP match the referees.
     const per = {};
     for (const r of allLeadReports().filter(x => (x.event || "") === event.code)) {
@@ -1286,10 +1493,20 @@
           : `<p class="hint">None of your reports match an official match yet.</p>`}
       </div>
       <div class="card"><h2 class="section-h">Official rankings</h2>
-        ${ranks.length ? `<div class="scroll"><table><thead><tr><th>Team</th><th>Rank</th><th>RS</th><th>W-L-T</th><th><span class="grp">scouted</span>Pieces</th><th><span class="grp">scouted</span>RP</th></tr></thead>
-          <tbody>${ranks.map(([t, o]) => { const r = byTeam[t]; return `<tr><td class="team">${tierTag(tierOf(t))} ${esc(t)}<small>${esc(names[t] || "")}</small></td><td>${o.rank}</td><td>${fmt(o.rs)}</td><td>${o.w}-${o.l}-${o.t}</td><td>${r ? fmt(r.avgTotal) : "–"}</td><td>${r && r.avgRp != null ? fmt(r.avgRp) : "–"}</td></tr>`; }).join("")}</tbody></table></div>`
+        <p class="hint"><b>OPR</b> estimates the points each team adds to its alliance, from official scores. Averages are alliance scores, so they include partners.</p>
+        ${ranks.length ? `<div class="scroll"><table><thead><tr><th>Team</th><th>Rank</th><th>RS</th><th>W-L-T</th><th>OPR</th>${teamCols.map(([, l]) => `<th>${esc(l)}</th>`).join("")}<th><span class="grp">scouted</span>Pieces</th><th><span class="grp">scouted</span>RP</th></tr></thead>
+          <tbody>${ranks.map(([t, o]) => { const r = byTeam[t]; return `<tr><td class="team">${tierTag(tierOf(t))} ${esc(t)}<small>${esc(names[t] || "")}</small></td><td>${o.rank}</td><td>${fmt(o.rs)}</td><td>${o.w}-${o.l}-${o.t}</td><td>${o.opr && o.opr.totalPointsNp != null ? fmt(o.opr.totalPointsNp) : "–"}</td>${teamCols.map(([k]) => `<td>${o.avg && o.avg[k] != null ? fmt(o.avg[k]) : "–"}</td>`).join("")}<td>${r ? fmt(r.avgTotal) : "–"}</td><td>${r && r.avgRp != null ? fmt(r.avgRp) : "–"}</td></tr>`; }).join("")}</tbody></table></div>`
           : `<p class="hint">Rankings appear once qualification matches have been played.</p>`}
-      </div>`;
+      </div>
+      <details class="card official-matches"><summary><h2 class="section-h">Official match results <span class="count">${Object.keys(off.matches).length}</span></h2></summary>
+        <div class="scroll"><table class="mini"><thead><tr><th>Match</th><th>Alliance</th><th>Total</th>${matchCols.map(([, l]) => `<th>${esc(l)}</th>`).join("")}${rpCols.map(([, l]) => `<th>${esc(l)}</th>`).join("")}</tr></thead>
+        <tbody>${Object.keys(off.matches).sort((a, b) => +b - +a).flatMap(m => { const om = off.matches[m];
+          return [["Red", om.red, om.teams.slice(0, 2), om.blue], ["Blue", om.blue, om.teams.slice(2), om.red]].map(([side, sc, tm, opp], i) => `<tr class="${i ? "" : "first"}">
+            <td>${i ? "" : esc(m)}</td><td class="${side === "Red" ? "red-t" : "blue-t"}">${side} ${tm.map(esc).join(" & ")}</td>
+            <td><b>${sc.total ?? "–"}</b>${sc.total > opp.total ? " ✓" : ""}</td>
+            ${matchCols.map(([k]) => `<td>${sc.f && sc.f[k] != null ? sc.f[k] : "–"}</td>`).join("")}
+            ${rpCols.map(([k]) => `<td>${sc.rp && sc.rp[k] ? "✓" : ""}</td>`).join("")}</tr>`); }).join("")}</tbody></table></div>
+      </details>`;
   }
 
   // ===================================================================
@@ -1387,7 +1604,7 @@
     if (sub === "schedule") renderSchedule();
     if (sub === "matches") renderMatches(c);
     if (sub === "robots") renderRobots(c);
-    if (sub === "data") renderData(c);
+    if (sub === "data") { renderData(c); renderReportList(); }
     if (sub === "picks") renderPicks(c);
     if (sub === "official") renderOfficial(c);
   }

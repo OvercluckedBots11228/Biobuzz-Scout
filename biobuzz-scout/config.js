@@ -53,6 +53,15 @@ window.SCOUT_CONFIG = {
   // the sections for the current period.
   matchTiming: { auto: 30, transition: 8, teleop: 120, endgameAt: 60, endgameText: "1:00 left: Nectar may go into Flowers" },
 
+  // Official results from FTCScout: which numbers to show, as [FTCScout field, label].
+  // Field names change each season; a field FTCScout doesn't have is simply skipped.
+  official: {
+    // Per alliance in each match.
+    match: [["autoPoints", "Auto"], ["dcPoints", "Teleop"], ["tips", "Hive tips"], ["dcFlowerPoints", "Flowers"], ["dcGardenPoints", "Garden"], ["penaltyPointsByOpp", "From fouls"]],
+    // Per team, averaged over its qualification matches (alliance scores, so a partner's work is included).
+    team: [["totalPointsNp", "Avg pts"], ["autoPoints", "Avg auto"], ["tips", "Avg tips"], ["penaltyPointsCommitted", "Fouls given"]],
+  },
+
   // Two counters whose difference is at least this big get flagged when two
   // scouts watched the same robot in the same match.
   flagDifference: 3,
