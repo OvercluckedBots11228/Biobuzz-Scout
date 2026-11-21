@@ -287,6 +287,8 @@ select, .tools input:not([type="checkbox"]) { width: 100%; min-width: 0; padding
 .official-matches td { text-align: right; }
 .official-matches td:nth-child(2) { text-align: left; white-space: nowrap; }
 
+td small.pct { color: var(--muted); font-size: 12px; }
+
 /* Lead lock */
 .lead-login { text-align: center; margin: 28px 0 0; }
 .linklike { border: 0; background: none; color: var(--muted); font-size: 14px; text-decoration: underline; padding: 8px; }

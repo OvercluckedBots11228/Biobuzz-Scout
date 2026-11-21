@@ -902,6 +902,13 @@
     const m = es.reduce((t, e) => t + MISSES.filter(inS).reduce((a, f) => a + e.v[f.key], 0), 0);
     return s + m ? s / (s + m) : null;
   }
+  // One report's shots: made (scored pieces) and attempts (made + missed).
+  function shotsOf(x) {
+    const made = SCORED.reduce((t, f) => t + (+x.v[f.key] || 0), 0), att = made + MISSES.reduce((t, f) => t + (+x.v[f.key] || 0), 0);
+    return { made, att };
+  }
+  const shotLine = x => { const { made, att } = shotsOf(x); return att ? `${made} of ${att}` : "–"; };
+  const shotCells = x => { const { made, att } = shotsOf(x); return [made, att, att ? Math.round(made / att * 100) + "%" : ""]; };
   function consolidate() {
     const reps = leadReports(), names = teamNames(), groups = new Map();
     for (const r of reps) { const k = `${r.event || ""}|${r.team}|${r.match}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); }
@@ -924,6 +931,8 @@
       r.avgTotal = mean(es.map(e => e.total)); r.best = Math.max(...es.map(e => e.total));
       for (const s of ACC_SECTIONS) r.acc[s.id] = accuracy(es, s);
       r.accAll = accuracy(es);
+      r.made = es.reduce((t, e) => t + e.total, 0); r.missed = es.reduce((t, e) => t + e.missed, 0); r.att = r.made + r.missed;
+      r.avgAtt = r.att / es.length; r.avgMade = r.made / es.length;
       const rps = es.map(e => e.rp).filter(x => x != null); r.avgRp = rps.length ? mean(rps) : null;
       return r;
     });
@@ -946,7 +955,7 @@
   function renderMatches(c) {
     const el = $("#matches");
     if (!c.byMatch.size) { el.innerHTML = `<div class="empty"><strong>No matches yet</strong>Scan a scout's phone on the Scan tab and their matches show up here.</div>`; return; }
-    const head = `<tr><th>Team</th><th>Total</th>${RP_FIELDS.length ? "<th>RP</th>" : ""}${COUNTERS.map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.label)}</th>`).join("")}${OTHER.filter(f => !f.tags).map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.short || f.label)}</th>`).join("")}<th>Scouts</th></tr>`;
+    const head = `<tr><th>Team</th><th>Total</th>${RP_FIELDS.length ? "<th>RP</th>" : ""}${MISSES.length ? "<th>Shots</th>" : ""}${COUNTERS.map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.label)}</th>`).join("")}${OTHER.filter(f => !f.tags).map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.short || f.label)}</th>`).join("")}<th>Scouts</th></tr>`;
     // With a schedule, also list scheduled matches up to the latest one scouted, so gaps show.
     const keys = new Set(c.byMatch.keys());
     const sched = !tools.allEvents && schedule && schedule.event === event.code ? schedule : null;
@@ -970,6 +979,7 @@
           <tr><td class="team">${spotOf(e) >= 0 ? `<span class="spot-tag ${spotOf(e) < 2 ? "red" : "blue"}">${SPOTS[spotOf(e)]}</span> ` : ""}${esc(e.team)}${e.flags.length ? ' <span class="pill warn">!</span>' : ""}<small>${esc(c.names[e.team] || "")}</small></td>
             <td class="tot">${fmt(e.total)}</td>
             ${RP_FIELDS.length ? `<td>${fmt(e.rp)}</td>` : ""}
+            ${MISSES.length ? `<td>${e.total + e.missed ? `${fmt(e.total)} of ${fmt(e.total + e.missed)}` : "–"}</td>` : ""}
             ${COUNTERS.map(f => `<td>${counterCell(f, e.v[f.key])}</td>`).join("")}
             ${OTHER.filter(f => !f.tags).map(f => `<td>${f.type === "yesno" ? yn(e.v[f.key]) : f.type === "choice" ? choicePill(f, e.v[f.key]) : f.options.filter(o => e.v[f.key][o.id] >= 0.5).map(o => esc(o.short || o.label)).join(", ") || "–"}</td>`).join("")}
             <td class="row-btns">${e.n} <button type="button" class="btn small" data-fix="${esc(e.reports.map(r => r.id).join(","))}">Edit</button></td></tr>`).join("")}
@@ -1010,7 +1020,12 @@
       { id: "best", label: "Best", sortLabel: "Best single match", sort: r => r.best, html: r => fmt(r.best) },
       { id: "matches", label: "Matches", sortLabel: "Matches scouted", sort: r => r.matches, html: r => r.matches },
       ...(RP_FIELDS.length ? [{ id: "avgRp", group: "avg", label: "RP", sortLabel: "Ranking points (average)", sort: r => r.avgRp, html: r => fmt(r.avgRp) }] : []),
-      ...(MISSES.length ? [{ id: "accAll", label: "Accuracy", sortLabel: "Accuracy (all shots)", sort: r => r.accAll, html: r => bar(r.accAll) }] : []),
+      ...(MISSES.length ? [
+        { id: "accAll", label: "Accuracy", sortLabel: "Accuracy (all shots)", sort: r => r.accAll, html: r => bar(r.accAll) },
+        { id: "avgAtt", group: "avg", label: "Shots/match", sortLabel: "Shots attempted per match", sort: r => r.avgAtt, html: r => fmt(r.avgAtt) },
+        { id: "avgMade", group: "avg", label: "Made/match", sortLabel: "Shots made per match", sort: r => r.avgMade, html: r => fmt(r.avgMade) },
+        { id: "shotsOf", group: "all matches", label: "Made of tries", sortLabel: "Total shots attempted", sort: r => r.att, html: r => r.att ? `${fmt(r.made)} of ${fmt(r.att)} <small class="pct">(${pct(r.accAll)})</small>` : "–" },
+      ] : []),
       ...ACC_SECTIONS.map(s => ({ id: "acc." + s.id, group: s.short, label: "Accuracy", sortLabel: `${s.short} accuracy`, sort: r => r.acc[s.id], html: r => bar(r.acc[s.id]) })),
       ...COUNTERS.map(f => ({ id: f.key, group: f.section.short + " avg", label: f.label, sortLabel: `${f.section.short} ${f.label.toLowerCase()} (average)`, sort: r => r.avg[f.key], html: r => counterCell(f, r.avg[f.key]) })),
     ];
@@ -1096,12 +1111,13 @@
     }));
     return `<tr class="detail"><td colspan="${span}"><div class="detail-grid">
       <div><h3>Every report</h3><div class="scroll"><table class="mini">
-        <thead><tr><th>Match</th><th>Position</th>${COUNTERS.map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.label)}</th>`).join("")}<th>Total</th>${OTHER.filter(f => f.type !== "checks").map(f => `<th>${esc(f.short || f.label)}</th>`).join("")}<th>Scout</th><th></th></tr></thead>
+        <thead><tr><th>Match</th><th>Position</th>${COUNTERS.map(f => `<th><span class="grp">${esc(f.section.short)}</span>${esc(f.label)}</th>`).join("")}<th>Total</th>${MISSES.length ? "<th>Shots</th>" : ""}${OTHER.filter(f => f.type !== "checks").map(f => `<th>${esc(f.short || f.label)}</th>`).join("")}<th>Scout</th><th></th></tr></thead>
         <tbody>${r.entries.flatMap(e => e.reports.map((x, i) => `<tr>
           <td>${i === 0 ? esc(e.matchKey) : ""}</td>
           <td>${x.spot != null ? `<span class="spot-tag ${x.spot < 2 ? "red" : "blue"}">${SPOTS[x.spot]}</span>` : "–"}</td>
           ${COUNTERS.map(f => `<td>${counterCell(f, x.v[f.key])}</td>`).join("")}
           <td>${SCORED.reduce((s, f) => s + (+x.v[f.key] || 0), 0)}</td>
+          ${MISSES.length ? `<td>${shotLine(x)}</td>` : ""}
           ${OTHER.filter(f => f.type !== "checks").map(f => `<td>${f.type === "yesno" ? yn(x.v[f.key]) : choicePill(f, x.v[f.key])}</td>`).join("")}
           <td>${esc(x.scouter)}</td>
           <td class="row-btns"><button class="btn small" data-fix="${esc(x.id)}" type="button">Edit</button> <button class="btn small danger" data-del="${esc(x.id)}" type="button">Delete</button></td>
@@ -1161,7 +1177,7 @@
   const stamp = () => new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
   $("#export-csv").addEventListener("click", () => {
     const cell = v => { if (v === true) v = "Yes"; else if (v === false) v = "No"; else if (v == null) v = ""; else if (Array.isArray(v)) v = v.join(" + "); v = String(v); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
-    const head = ["Event", "Match", "Alliance position", "Team", "Team name", "Scout", ...FIELDS.map(f => `${f.section.title}: ${f.short || f.label}`), "Saved at", "Pick list"];
+    const head = ["Event", "Match", "Alliance position", "Team", "Team name", "Scout", ...FIELDS.map(f => `${f.section.title}: ${f.short || f.label}`), ...(MISSES.length ? ["Shots made", "Shots attempted", "Shot accuracy"] : []), "Saved at", "Pick list"];
     const names = teamNames();
     const rows = allLeadReports().sort((a, b) => natural(a.event || "", b.event || "") || natural(a.match, b.match) || natural(a.team, b.team)).map(r =>
       [r.event || "", r.match, r.spot != null ? SPOTS[r.spot] : "", r.team, r.teamName || names[r.team] || "", r.scouter, ...FIELDS.map(f => {
@@ -1169,7 +1185,7 @@
         if (f.type === "choice") { const o = f.options.find(o => o.id === v); return o ? o.label : ""; }
         if (f.type === "checks") return (v || []).map(id => (f.options.find(o => o.id === id) || {}).label).join(" + ");
         return v;
-      }), new Date(r.at).toLocaleString(), (TIERS.find(x => x[0] === tierOf(r.team, r.event || "")) || [, ""])[1]].map(cell).join(","));
+      }), ...(MISSES.length ? shotCells(r) : []), new Date(r.at).toLocaleString(), (TIERS.find(x => x[0] === tierOf(r.team, r.event || "")) || [, ""])[1]].map(cell).join(","));
     if (!rows.length) { toast("Nothing to save yet."); return; }
     saveFile(`${C.season}-scouting-${stamp()}.csv`, [head.map(cell).join(","), ...rows].join("\n"), "text/csv");
   });
